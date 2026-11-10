@@ -3,6 +3,19 @@ import { parseText } from '../src/model';
 import { Timeline } from '../src/transport';
 const song = () => parseText('1 4/4 120\n2 2/4 60\n3 8/8 120\n4');
 describe('序列播放时序', () => {
+  it('M 产生不完整 -2、完整 -1、完整 0，并冻结倒计时', () => {
+    const t=new Timeline(song(),'prepare',3,0);
+    t.take(); expect(t.requestEntry(2,.1,0)).toBe(true);
+    expect(t.requestEntry(0,.2,0)).toBe(false);
+    for(let i=0;i<3;i++) expect(t.take()).toMatchObject({phase:'countdown',bar:-2,fullCountIn:false});
+    for(let i=0;i<4;i++) expect(t.take()).toMatchObject({phase:'countdown',bar:-1,fullCountIn:true});
+    for(let i=0;i<4;i++) expect(t.take()).toMatchObject({phase:'countdown',bar:0,fullCountIn:true});
+    expect(t.take()).toMatchObject({phase:'playing',bar:3,time:6,fullCountIn:false});
+  });
+  it('下一小节开始只使用当前不完整小节，并显示 0', () => {
+    const t=new Timeline(song(),'prepare',2,0); t.take(); t.requestEntry(0,.1,0);
+    expect(t.take()).toMatchObject({phase:'countdown',bar:0,fullCountIn:false});
+  });
   it('连续变拍变速，曲尾最后一拍完整播放', () => {
     const timeline = new Timeline(song(), 'direct', 1, 10);
     const events = []; while (timeline.phase !== 'stopped') events.push(timeline.take()!);
@@ -20,17 +33,17 @@ describe('序列播放时序', () => {
     const t = new Timeline(song(), 'prepare', 3, 0);
     expect(t.take()).toMatchObject({ phase:'prepare', meter:[4,4] });
     t.requestEntry(0, .1, 0);
-    for (let i=0;i<3;i++) expect(t.take()?.phase).toBe('waiting');
+    for (let i=0;i<3;i++) expect(t.take()?.phase).toBe('countdown');
     expect(t.take()).toMatchObject({ phase:'playing', bar:3, meter:[8,8], time:2 });
   });
   it('准备模式 N 等当前小节结束再过一小节', () => {
     const t = new Timeline(song(), 'prepare', 2, 0); t.take(); t.requestEntry(1, .1, 0);
-    for (let i=0;i<7;i++) expect(t.take()?.phase).toBe('waiting');
+    for (let i=0;i<7;i++) expect(t.take()?.phase).toBe('countdown');
     expect(t.take()).toMatchObject({ phase:'playing', bar:2, time:4 });
   });
   it('一小节后开始完整准备一次', () => {
     const t = new Timeline(song(), 'count', 2, 0);
-    for(let i=0;i<4;i++) expect(t.take()).toMatchObject({ phase:'waiting', meter:[4,4] });
+    for(let i=0;i<4;i++) expect(t.take()).toMatchObject({ phase:'countdown', meter:[4,4] });
     expect(t.take()).toMatchObject({ phase:'playing', bar:2, time:2 });
   });
   it('普通模式持续运行，改拍号到下一小节生效', () => {

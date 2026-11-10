@@ -24,17 +24,17 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); });
 const sample = () => parseText('1 4/4 400\n2 2/4 120\n3');
 describe('音频事件安排与取消', () => {
-  it('极短小节即使已提前安排到曲尾，仍能改变准备进入时机', async () => {
+  it('极短小节进入倒计时后也不能再次改变进入时机', async () => {
     const engine=new AudioEngine();
     await engine.start(parseText('1 1/32 400\n2'),'count',1);
     const context=engine.context as unknown as Context;
     context.currentTime=.04; engine.pump();
     expect(engine.timeline!.phase).toBe('stopped');
     engine.enter(1);
-    expect(engine.lastPosition.phase).toBe('waiting');
-    expect(engine.lastPosition.remaining).toBe(2);
+    expect(engine.lastPosition.phase).toBe('countdown');
+    expect(engine.timeline!.enterAt).toBe(1);
     context.currentTime=.05; engine.pump();
-    expect(engine.events.find(e=>e.phase==='playing')?.time).toBeCloseTo(.1075,10);
+    expect(engine.events.find(e=>e.phase==='playing')?.time).toBeCloseTo(.08875,10);
     engine.stop();
   });
   it('预加载音效，首拍重音，停止时取消已安排声音', async () => {
@@ -46,7 +46,7 @@ describe('音频事件安排与取消', () => {
     expect(context.sources[0].playbackRate.value).toBe(1.35);
     engine.stop(); expect(context.sources[0].stop).toHaveBeenCalled(); expect(engine.events).toHaveLength(0);
   });
-  it.each([0,1])('在提前安排的准备边界前修改进入指令（额外小节 %s）', async extra => {
+  it.each([0,1,2])('在提前安排的准备边界前确定进入指令（额外小节 %s）', async extra => {
     const engine = new AudioEngine(); await engine.start(sample(),'prepare',2);
     const context=engine.context as unknown as Context;
     for(let t=.02;t<=.65;t+=.01) { context.currentTime=t; engine.pump(); }
@@ -54,10 +54,22 @@ describe('音频事件安排与取消', () => {
     const oldFuture=context.sources.at(-1)!;
     engine.enter(extra);
     expect(oldFuture.stop).toHaveBeenCalled();
-    for(let t=.65;t<1.3;t+=.01) { context.currentTime=t; engine.pump(); }
+    for(let t=.65;t<1.9;t+=.01) { context.currentTime=t; engine.pump(); }
     const formal=engine.events.find(e=>e.phase==='playing')!;
-    expect(formal.time).toBeCloseTo(extra ? 1.27 : .67,10);
+    expect(formal.time).toBeCloseTo(.67 + extra * .6,10);
     expect(formal.bar).toBe(2); engine.stop();
+  });
+  it('完整倒计时小节升高音调，正式播放恢复原音调', async () => {
+    const engine=new AudioEngine(); await engine.start(sample(),'count',1);
+    const context=engine.context as unknown as Context;
+    for(let t=.02;t<.7;t+=.01) { context.currentTime=t; engine.pump(); }
+    const first=context.sources[0];
+    expect(first.playbackRate.value).toBeCloseTo(1.35*1.25);
+    const formal=engine.scheduled.find(s=>s.event.phase==='playing' && s.event.beat===0)!;
+    expect(formal.source.playbackRate.value).toBe(1.35);
+    const time=engine.timeline!.enterAt;
+    engine.enter(2); expect(engine.timeline!.enterAt).toBe(time);
+    engine.stop();
   });
   it('音效加载期间停止，不会在加载完成后自行开始', async () => {
     let resume: (()=>void) | undefined;

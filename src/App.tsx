@@ -5,6 +5,7 @@ import { clone, copyRows, denominators, exampleSong, exportText, fingerprint, in
 import type { ClipRow, Meter, Row, Section, Song } from './model';
 import { commit, dirty, loadLibrary, loadWorkspace, persistWorkspace, redo, undo } from './storage';
 import type { SavedEntry, Tab } from './storage';
+import { selectRows } from './selection';
 import { AudioEngine, stopped } from './transport';
 import type { Position } from './transport';
 
@@ -25,6 +26,7 @@ function Icon({ name }: { name: string }) {
     text: <><path d="M4 5h16M12 5v15M8 20h8"/></>, download: <><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></>,
     upload: <><path d="M12 16V4m-5 5 5-5 5 5M4 16v5h16v-5"/></>, copy: <><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V3H3v13h5"/></>,
     trash: <><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/></>, note: <><path d="M4 4h16v12H9l-5 4Z"/><path d="M8 8h8M8 12h5"/></>,
+    paste: <><path d="M9 5H5v16h14V5h-4"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M8 12h8M8 16h6"/></>,
     clock: <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
   };
   return <svg width="16" height="16" viewBox="0 0 24 24" fill={name === 'play' || name === 'stop' ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
@@ -70,13 +72,13 @@ export default function App() {
   const [pasteAt, setPasteAt] = useState<number | null>(null);
   const [modal, setModal] = useState<Modal | null>(initial.error ? { type: 'message', title: '读取失败', text: initial.error } : null);
   const [parseError, setParseError] = useState('');
-  const [parsePopup, setParsePopup] = useState(false);
   const [position, setPosition] = useState<Position>(stopped), [loading, setLoading] = useState(false);
   const [startBar, setStartBar] = useState(1), [follow, setFollow] = useState(true);
   const [simple, setSimple] = useState({ meter: [4, 4] as Meter, bpm: 120 });
   const [volume, setVolume] = useState(65), [notice, setNotice] = useState('');
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const engine = useRef(new AudioEngine()).current;
+  const editorRef = useRef<HTMLElement>(null), scrollRef = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const drag = useRef<{ x: number; y: number; initial: Set<string>; moved: boolean } | null>(null);
   const [marquee, setMarquee] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
@@ -100,7 +102,7 @@ export default function App() {
   }
   function modifyRow(id: string, change: Partial<Section> | { text: string }) { updateSong(s => { s.rows = s.rows.map(r => r.id === id ? { ...r, ...change } as Row : r); return validate(s); }); }
   function add(at = insertion, content?: ClipRow[]) { if (sequenceLocked) return; updateSong(s => insertRows(s, at, content)); setPasteAt(null); setSelection(new Set()); }
-  function remove(comments = false) { if (sequenceLocked || !selection.size) return; updateSong(s => removeRows(s, selection, comments)); setSelection(new Set()); setPasteAt(null); }
+  function remove() { if (sequenceLocked || !selection.size) return; updateSong(s => removeRows(s, selection)); setSelection(new Set()); setPasteAt(null); }
   function history(direction: 'undo' | 'redo') { if (sequenceLocked) return; setAll(tabsRef.current.map(t => t.id === activeRef.current ? (direction === 'undo' ? undo(t) : redo(t)) : t)); setSelection(new Set()); setPasteAt(null); }
   function save(id = activeRef.current): boolean {
     try {
@@ -145,7 +147,7 @@ export default function App() {
   function acceptText() {
     if (modal?.type !== 'text') return;
     try { const parsed = parseText(modal.text, song.title); updateSong(() => parsed); setModal(null); setParseError(''); }
-    catch (error) { setParseError(errorText(error)); setParsePopup(true); }
+    catch (error) { setParseError(errorText(error)); }
   }
   function exportFile(format: 'txt' | 'json') {
     const blob = new Blob([format === 'txt' ? exportText(song) : JSON.stringify(song, null, 2) + '\n'], { type: format === 'txt' ? 'text/plain;charset=utf-8' : 'application/json;charset=utf-8' });
@@ -193,14 +195,10 @@ export default function App() {
     } catch (error) { engine.stop(); message('播放失败', errorText(error)); }
     finally { setLoading(false); }
   }
-  function selectRow(id: string, shift: boolean, toggle: boolean) {
+  function selectRow(id: string, shift: boolean, additive: boolean) {
     setPasteAt(null);
-    if (shift && anchor.current) {
-      const a = song.rows.findIndex(r => r.id === anchor.current), b = song.rows.findIndex(r => r.id === id);
-      setSelection(new Set(song.rows.slice(Math.min(a, b), Math.max(a, b) + 1).map(r => r.id)));
-    } else if (toggle) setSelection(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-    else setSelection(new Set([id]));
-    if (!shift) anchor.current = id;
+    setSelection(previous => selectRows(song.rows.map(r => r.id), previous, id, anchor.current, shift, additive));
+    if (!shift || !song.rows.some(r => r.id === anchor.current)) anchor.current = id;
   }
 
   useEffect(() => {
@@ -208,7 +206,24 @@ export default function App() {
     engine.onError = text => message('播放中断', text);
     return () => { engine.stop(); clearTimeout(noticeTimer.current); };
   }, [engine]);
-  useEffect(() => { if (follow && position.sectionId) document.getElementById(`row-${position.sectionId}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, [position.sectionId, follow]);
+  useEffect(() => {
+    const container = scrollRef.current;
+    const row = position.sectionId ? document.getElementById('row-' + position.sectionId) : null;
+    if (!follow || !row || !container) return;
+    const bounds = container.getBoundingClientRect(), item = row.getBoundingClientRect();
+    if (item.top < bounds.top + 46) container.scrollTop -= bounds.top + 46 - item.top;
+    else if (item.bottom > bounds.bottom) container.scrollTop += item.bottom - bounds.bottom;
+  }, [position.sectionId, follow]);
+  useEffect(() => {
+    function outside(e: PointerEvent) {
+      if (e.target instanceof Node && !editorRef.current?.contains(e.target)) {
+        setPasteAt(null);
+        if (!e.ctrlKey && !e.metaKey) { setSelection(new Set()); anchor.current = null; }
+      }
+    }
+    document.addEventListener('pointerdown', outside);
+    return () => document.removeEventListener('pointerdown', outside);
+  }, []);
   useEffect(() => { setStartBar(prev => Math.max(1, Math.min(prev, song.endExclusive - 1))); }, [song.endExclusive]);
   useEffect(() => {
     function beforeUnload(e: BeforeUnloadEvent) { if (tabsRef.current.some(dirty)) { e.preventDefault(); e.returnValue = ''; } }
@@ -233,14 +248,18 @@ export default function App() {
         if (e.key.toLowerCase() === 'a' && mode === 'sequence') { e.preventDefault(); setSelection(new Set(song.rows.map(r => r.id))); }
         return;
       }
-      if (e.key === 'Backspace') { e.preventDefault(); engine.stop(); setLoading(false); }
-      else if (e.key === 'Delete' && mode === 'sequence') { e.preventDefault(); remove(); }
+      if (mode === 'simple') {
+        if (e.key === ' ') { e.preventDefault(); if (playing) { engine.stop(); setLoading(false); } else void start('direct'); }
+        return;
+      }
+      if (e.key.toLowerCase() === 'v' && !playing) { e.preventDefault(); textEditor(); }
+      else if (e.key === 'Backspace') { e.preventDefault(); engine.stop(); setLoading(false); }
+      else if (e.key === 'Delete') { e.preventDefault(); remove(); }
       else if (e.key === 'Enter' && !playing) { e.preventDefault(); void start('direct'); }
-      else if (e.key === ' ' || e.key.toLowerCase() === 'n') {
+      else if (e.key === ' ' || ['n','m'].includes(e.key.toLowerCase())) {
         e.preventDefault();
-        if (mode === 'simple') { if (playing) engine.stop(); else void start('direct'); }
-        else if (position.phase === 'prepare' || position.phase === 'waiting') engine.enter(e.key === ' ' ? 0 : 1);
-        else if (!playing) void start(e.key === ' ' ? 'prepare' : 'count');
+        if (position.phase === 'prepare') engine.enter(e.key === ' ' ? 0 : e.key.toLowerCase() === 'n' ? 1 : 2);
+        else if (!playing && e.key.toLowerCase() !== 'm') void start(e.key === ' ' ? 'prepare' : 'count');
       }
     }
     function copy(e: ClipboardEvent) { if (modal || isEditing(e.target) || !selection.size || mode !== 'sequence') return; e.preventDefault(); e.clipboardData?.setData('text/plain', clipboardText()); toast(`已复制 ${selection.size} 行`); }
@@ -253,10 +272,11 @@ export default function App() {
       const d = drag.current; if (!d) return;
       if (Math.abs(e.clientX - d.x) + Math.abs(e.clientY - d.y) < 6) return;
       d.moved = true;
+      setPasteAt(null);
       const rect = { x: Math.min(d.x, e.clientX), y: Math.min(d.y, e.clientY), width: Math.abs(e.clientX - d.x), height: Math.abs(e.clientY - d.y) };
       setMarquee(rect);
       const next = new Set(d.initial);
-      document.querySelectorAll<HTMLElement>('[data-row-id]').forEach(el => {
+      scrollRef.current?.querySelectorAll<HTMLElement>('[data-row-id]').forEach(el => {
         const box = el.getBoundingClientRect();
         if (box.bottom >= rect.y && box.top <= rect.y + rect.height && box.right >= rect.x && box.left <= rect.x + rect.width) next.add(el.dataset.rowId!);
       });
@@ -267,36 +287,46 @@ export default function App() {
     return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
   }, []);
 
-  const preparing = position.phase === 'prepare' || position.phase === 'waiting';
-  const status = loading ? '正在加载音效' : position.phase === 'playing' ? '正在播放' : preparing ? position.phase === 'waiting' ? '等待进入' : '准备模式' : position.phase === 'simple' ? '正在播放' : '就绪';
-  function gap(index: number) { return <div key={`gap-${index}`} className={`insert-gap ${pasteAt === index ? 'chosen' : ''}`}><button disabled={sequenceLocked} onClick={() => { setPasteAt(index); setSelection(new Set()); }} aria-label={`选择第 ${index + 1} 个插入位置`} title="选择插入位置，然后新增或 Ctrl+V"><span>＋</span><span className="gap-label">{pasteAt === index ? '在此插入 · 新增段落或 Ctrl+V' : '选择插入位置'}</span></button></div>; }
+  const preparing = position.phase === 'prepare';
+  const countdown = position.phase === 'countdown';
+  const status = loading ? '正在加载音效' : position.phase === 'playing' || position.phase === 'simple' ? '正在播放' : preparing ? '准备模式' : countdown ? '即将开始' : '就绪';
+  function gap(index: number) {
+    return <div key={`gap-${index}`} className={`insert-gap ${pasteAt === index ? 'chosen' : ''}`}><button disabled={sequenceLocked} onClick={() => { setPasteAt(index); setSelection(new Set()); anchor.current = null; }} aria-label={`选择第 ${index + 1} 个插入位置`}><span>＋</span><span className="gap-label">在此新增或粘贴</span></button></div>;
+  }
 
   return <div className="app-shell">
-    <header className="app-header"><div className="brand"><span className="brand-mark"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M11 5h10l6 23H5Z"/><path d="m12 22 9-17M9 22h14M16 13v4"/><circle cx="12" cy="22" r="2"/></svg></span><div><h1>节拍器</h1><span>METRONOME</span></div></div><nav aria-label="节拍器模式"><button className={mode === 'simple' ? 'active' : ''} onClick={() => { engine.stop(); setLoading(false); setMode('simple'); }}>普通节拍器</button><button className={mode === 'sequence' ? 'active' : ''} onClick={() => { engine.stop(); setLoading(false); setMode('sequence'); }}>序列节拍器</button></nav><div className="header-note">为每一次练习，保持节奏。</div></header>
-
-    {mode === 'sequence' && <div className="tabs-bar" role="tablist" aria-label="曲目标签">{tabs.map(t => <div key={t.id} className={`song-tab ${t.id === active ? 'active' : ''}`}><button role="tab" aria-selected={t.id === active} onClick={() => switchTab(t.id)} onDoubleClick={() => { switchTab(t.id); rename(t.id); }} title="双击重命名 · F2"><span>{t.song.title}</span>{dirty(t) && <span className="dirty" aria-label="未保存">*</span>}</button><button className="tab-close" aria-label={`关闭 ${t.song.title}`} onClick={() => closeTab(t.id)}>×</button></div>)}<button className="new-tab" aria-label="新建曲目" title="新建曲目" onClick={() => addTab()}><Icon name="plus"/></button></div>}
-
-    <main><div className="section-heading"><div><div className="eyebrow">{mode === 'sequence' ? 'SEQUENCE' : 'METRONOME'}</div><h2>{mode === 'sequence' ? song.title : '专注当下这一拍'}</h2><p>{mode === 'sequence' ? `${list.length} 个段落 · ${song.endExclusive - 1} 小节` : '设定速度与拍号，即可开始练习。'}</p></div>{mode === 'sequence' && <div className="document-actions"><button disabled={sequenceLocked} onClick={openLibrary}><Icon name="clock"/>打开</button><button onClick={() => save()}><Icon name="save"/>保存 <kbd>Ctrl S</kbd></button><button disabled={sequenceLocked} onClick={() => fileInput.current?.click()}><Icon name="upload"/>导入</button><details className="export-menu"><summary><Icon name="download"/>导出 <span>⌄</span></summary><div><button onClick={() => exportFile('txt')}>文本 .txt</button><button onClick={() => exportFile('json')}>JSON .json</button></div></details></div>}</div>
-
-    <section className={`player ${playing ? 'is-playing' : ''}`} aria-label="播放控制"><div className="player-controls"><div className="status"><span className={`status-dot ${playing ? 'running' : ''}`}/>{status}</div>
-      {mode === 'sequence' ? <label className="start-field">从第 <NumberField label="开始小节" value={startBar} min={1} max={Math.max(1, song.endExclusive - 1)} integer disabled={playing || !list.length} onCommit={setStartBar}/> 小节开始</label> : <div className="simple-fields"><label>速度 <span className="unit">♩ =</span><NumberField label="普通节拍器 BPM" value={simple.bpm} min={20} max={400} onCommit={bpm => { setSimple({ ...simple, bpm }); engine.changeSimple(simple.meter, bpm); }}/></label><label>拍号 <MeterFields label="普通节拍器" meter={simple.meter} onChange={meter => { setSimple({ ...simple, meter }); engine.changeSimple(meter, simple.bpm); }}/></label></div>}
-      <div className="transport-buttons">{!playing ? <><button className="primary" disabled={!list.length && mode === 'sequence'} onClick={() => void start('direct')}><Icon name="play"/>直接播放 <kbd>↵</kbd></button>{mode === 'sequence' && <><button disabled={!list.length} onClick={() => void start('prepare')}>准备模式 <kbd>Space</kbd></button><button disabled={!list.length} onClick={() => void start('count')}>一小节后开始 <kbd>N</kbd></button></>}</> : <><button className="stop-button" onClick={() => { engine.stop(); setLoading(false); }}><Icon name="stop"/>取消播放 <kbd>⌫</kbd></button>{preparing && <><button className="primary" onClick={() => engine.enter(0)}>下一小节开始 <kbd>Space</kbd></button><button onClick={() => engine.enter(1)}>下下小节开始 <kbd>N</kbd></button></>}</>}</div>
-      <div className="volume-control"><span>音量</span><input aria-label="音量" type="range" min="0" max="100" value={volume} onChange={e => { setVolume(+e.target.value); engine.setVolume(+e.target.value / 100); }}/><span className="volume-value">{volume}%</span></div>
-    </div><div className="player-display"><div className="measure-readout"><div className="measure-label">{preparing ? '准备小节' : mode === 'simple' ? '小节' : '当前小节'}</div><div className="measure-number">{preparing ? '—' : playing ? position.bar : startBar}<span>{preparing ? position.phase === 'waiting' ? `剩余 ${position.remaining ?? 1} 小节` : '循环准备' : mode === 'sequence' ? `/ ${song.endExclusive - 1}` : 'BAR'}</span></div><div className="local-measure">{preparing ? '使用第一段的速度与拍号' : mode === 'sequence' ? `段内第 ${playing ? position.localBar : startBar - (currentSection?.start ?? 1) + 1} 小节` : '每小节首拍重音'}</div></div><div className="beat-readout"><div className="tempo-readout"><span>{displayMeter.join('/')}</span><span>♩ = <strong>{displayBpm}</strong></span></div><div className="beat-lights" aria-label={`当前第 ${playing ? position.beat + 1 : 0} 拍`}>{Array.from({ length: displayMeter[0] }, (_, i) => <span key={i} className={`beat-light ${i === 0 ? 'first' : ''} ${playing && position.beat === i ? 'lit' : ''}`}>{i + 1}</span>)}</div><div className="beat-description">{playing ? `第 ${position.beat + 1} 拍` : '等待开始'}<span>BPM 以四分音符计</span></div></div></div></section>
-
-    {mode === 'sequence' ? <div className="workspace"><section className="editor" aria-label="段落编辑器"><div className="editor-heading"><div><h3>段落列表</h3><span>{selection.size ? `已选择 ${selection.size} 行` : '按曲谱顺序安排每一段'}</span></div><label className="follow"><input type="checkbox" checked={follow} onChange={e => setFollow(e.target.checked)}/>跟随播放</label></div><div className="editor-toolbar"><div><button disabled={sequenceLocked} onClick={() => add()}><Icon name="plus"/>新增段落</button><button disabled={sequenceLocked} onClick={() => add(insertion, [{ type: 'comment', text: '段落注释' }])}><Icon name="note"/>新增注释</button><span className="toolbar-divider"/><button className="icon-button" title="撤销 Ctrl+Z" aria-label="撤销" disabled={sequenceLocked || !tab.past.length} onClick={() => history('undo')}><Icon name="undo"/></button><button className="icon-button" title="重做 Ctrl+Y" aria-label="重做" disabled={sequenceLocked || !tab.future.length} onClick={() => history('redo')}><Icon name="redo"/></button></div><button disabled={sequenceLocked} onClick={textEditor}><Icon name="text"/>文本编辑</button></div>
-      <div className="table-scroll" onPointerDown={e => {
-        if (e.button !== 0 || (e.target as HTMLElement).closest('input,button,select,textarea,a,summary')) return;
-        e.preventDefault(); if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); drag.current = { x: e.clientX, y: e.clientY, moved: false, initial: e.ctrlKey || e.metaKey ? new Set(selection) : new Set() };
-      }}><div className="table-head" aria-hidden="true"><span/><span>起始小节</span><span>结束小节</span><span>拍号</span><span>速度 <small>♩ = BPM</small></span><span>小节数</span></div><div className="table-body">{song.rows.flatMap((row, index) => [gap(index), <div id={`row-${row.id}`} data-row-id={row.id} key={row.id} className={`segment-row ${row.type === 'comment' ? 'comment-row' : ''} ${selection.has(row.id) ? 'selected' : ''} ${position.sectionId === row.id ? 'current' : ''}`} onClick={e => { if (drag.current?.moved || (e.target as HTMLElement).closest('input,select,button,textarea')) return; selectRow(row.id, e.shiftKey, e.ctrlKey || e.metaKey); }}><span className="row-select"><input type="checkbox" aria-label={`选择第 ${index + 1} 行`} checked={selection.has(row.id)} onChange={() => selectRow(row.id, false, true)} onClick={e => e.stopPropagation()}/></span>{row.type === 'comment' ? <div className="comment-content"><span>#</span><input aria-label={`第 ${index + 1} 行注释`} disabled={sequenceLocked} value={row.text} onChange={e => modifyRow(row.id, { text: e.target.value })}/></div> : <><div className="start-cell">{row.id === list[0]?.id ? <span className="fixed-start" title="第一段固定从 1 开始">1<span className="fixed-label">固定</span></span> : <NumberField label={`第 ${index + 1} 行起始小节`} value={row.start} min={list[list.findIndex(r => r.id === row.id) - 1].start + 1} max={sectionEnd(song, row.id)} integer disabled={sequenceLocked} onCommit={start => modifyRow(row.id, { start })}/>}</div><div className="end-cell">{row.id === list.at(-1)?.id ? <NumberField label="曲目最后小节" value={song.endExclusive - 1} min={row.start} max={Number.MAX_SAFE_INTEGER - 1} integer disabled={sequenceLocked} onCommit={end => updateSong(s => ({ ...s, endExclusive: end + 1 }))}/> : <span>{sectionEnd(song, row.id)}</span>}</div><MeterFields label={`第 ${index + 1} 行`} meter={row.meter} disabled={sequenceLocked} onChange={meter => modifyRow(row.id, { meter })}/><div className="bpm-cell"><NumberField label={`第 ${index + 1} 行 BPM`} value={row.bpm} min={20} max={400} disabled={sequenceLocked} onCommit={bpm => modifyRow(row.id, { bpm })}/></div><span className="length-cell">{sectionEnd(song, row.id) - row.start + 1}<span className="current-label">播放中</span></span></>}</div>])}{gap(song.rows.length)}{!list.length && <div className="empty-state">还没有演奏段落。新增一段，开始安排曲目。</div>}</div></div>
-      <div className="selection-toolbar"><span>{pasteAt !== null ? `插入位置：第 ${pasteAt + 1} 行前` : selection.size ? `${selection.size} 行已选中` : '单击选择 · Shift 连选 · 拖动框选'}</span><div><button disabled={!selection.size} onClick={() => void toolbarCopy()}><Icon name="copy"/>复制</button><button disabled={sequenceLocked} onClick={() => void toolbarPaste()}>粘贴</button><button disabled={sequenceLocked || !selection.size} onClick={() => remove(true)}>转为注释</button><button disabled={sequenceLocked || !selection.size} className="delete-action" onClick={() => remove()}><Icon name="trash"/>删除</button></div></div>
-    </section><aside className="guide"><div className="guide-title"><Icon name="clock"/><h3>练习提示</h3></div><p>变拍处，让节拍器帮你接稳下一小节。</p><dl><dt><kbd>↵</kbd> 直接播放</dt><dd>从指定小节立即开始。</dd><dt><kbd>Space</kbd> 准备模式</dt><dd>先循环第一段，准备好后再按空格，于下一小节进入。</dd><dt><kbd>N</kbd> 多留一小节</dt><dd>停止时先准备一小节；准备时按 N，再等一个完整小节进入。</dd><dt><kbd>⌫</kbd> 取消播放</dt><dd>随时结束本次练习。</dd></dl><div className="guide-bottom"><span>编辑小提示</span><p>悬停行间的 ＋ 选择插入位置。复制的段落可以粘贴到其他曲目。</p><p>双击标签或按 <kbd>F2</kbd> 重命名；<kbd>Ctrl S</kbd> 保存到此浏览器。</p></div></aside></div> : <div className="simple-note"><h3>让速度变成习惯</h3><p>每小节第一拍以更高音调提示。播放中调整 BPM，从后续节拍生效；调整拍号，从下一小节生效。</p><div><kbd>↵</kbd> 开始 <span>·</span> <kbd>Space</kbd> 开始 / 停止 <span>·</span> <kbd>⌫</kbd> 停止</div></div>}
-    <footer className="app-footer"><span>纯前端 · 曲目保存在当前浏览器</span><span>{sequenceLocked ? '播放中，段落编辑已锁定' : mode === 'sequence' ? 'Ctrl Z 撤销 · Ctrl Y 重做 · F2 重命名' : 'BPM 以四分音符计'}</span></footer></main>
+    <header className="app-header"><div className="brand"><span className="brand-mark"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M11 5h10l6 23H5Z"/><path d="m12 22 9-17M9 22h14M16 13v4"/><circle cx="12" cy="22" r="2"/></svg></span><h1>节拍器</h1></div><nav aria-label="节拍器模式"><button className={mode === 'simple' ? 'active' : ''} onClick={() => { engine.stop(); setLoading(false); setMode('simple'); }}>普通节拍器</button><button className={mode === 'sequence' ? 'active' : ''} onClick={() => { engine.stop(); setLoading(false); setMode('sequence'); }}>序列节拍器</button></nav></header>
+    {mode === 'sequence' && <div className="tabs-bar" role="tablist" aria-label="曲目标签">{tabs.map(t => <div key={t.id} className={`song-tab ${t.id === active ? 'active' : ''}`}><button role="tab" aria-selected={t.id === active} onClick={() => switchTab(t.id)} onDoubleClick={() => { switchTab(t.id); rename(t.id); }}><span>{t.song.title}</span>{dirty(t) && <span className="dirty" aria-label="未保存">*</span>}</button><button className="tab-close" aria-label={`关闭 ${t.song.title}`} onClick={() => closeTab(t.id)}>×</button></div>)}<button className="new-tab" aria-label="新建曲目" onClick={() => addTab()}><Icon name="plus"/></button></div>}
+    <main>
+      <div className="section-heading">{mode === 'simple' ? <h2>普通节拍器</h2> : <div className="document-actions"><button disabled={sequenceLocked} onClick={openLibrary}><Icon name="clock"/>打开</button><button onClick={() => save()}><Icon name="save"/>保存 <kbd>Ctrl S</kbd></button><button disabled={sequenceLocked} onClick={() => fileInput.current?.click()}><Icon name="upload"/>导入</button><details className="export-menu"><summary><Icon name="download"/>导出 <svg className="chevron" width="18" height="18" viewBox="0 0 20 20" aria-hidden="true"><path d="m5 7 5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.6"/></svg></summary><div><button onClick={() => exportFile('txt')}>文本 .txt</button><button onClick={() => exportFile('json')}>JSON .json</button></div></details></div>}</div>
+      <section className={`player ${playing ? 'is-playing' : ''}`} aria-label="播放控制">
+        <div className={`player-display ${mode === 'simple' ? 'simple-display' : ''}`}>
+          {mode === 'sequence' && <div className="measure-readout"><div className="measure-label">当前小节</div><div className="measure-number">{preparing ? '—' : playing ? position.bar : startBar}<span>{!preparing && !countdown && `/ ${song.endExclusive - 1}`}</span></div></div>}
+          <div className="beat-readout"><div className="tempo-readout"><span>{displayMeter.join('/')}</span><span>♩ = <strong>{displayBpm}</strong></span></div><div className="beat-lights" style={{ gridTemplateColumns: `repeat(${Math.min(8, displayMeter[0])}, 72px)` }} aria-label={`当前第 ${playing ? position.beat + 1 : 0} 拍`}>{Array.from({ length: displayMeter[0] }, (_, i) => <span key={i} className={`beat-light ${i === 0 ? 'first' : ''} ${playing && position.beat === i ? 'lit' : ''}`}>{i + 1}</span>)}</div></div>
+        </div>
+        <div className="player-controls"><div className="control-settings"><div className="status"><span className={`status-dot ${playing ? 'running' : ''}`}/>{status}</div>
+          {mode === 'sequence' ? <label className="start-field">从第 <NumberField label="开始小节" value={startBar} min={1} max={Math.max(1, song.endExclusive - 1)} integer disabled={playing || !list.length} onCommit={setStartBar}/> 小节开始</label> : <div className="simple-fields"><label>速度 <span className="unit">♩ =</span><NumberField label="普通节拍器 BPM" value={simple.bpm} min={20} max={400} onCommit={bpm => { setSimple({ ...simple, bpm }); engine.changeSimple(simple.meter, bpm); }}/></label><label>拍号 <MeterFields label="普通节拍器" meter={simple.meter} onChange={meter => { setSimple({ ...simple, meter }); engine.changeSimple(meter, simple.bpm); }}/></label></div>}
+          <div className="volume-control"><span>音量</span><input aria-label="音量" type="range" min="0" max="100" value={volume} onChange={e => { setVolume(+e.target.value); engine.setVolume(+e.target.value / 100); }}/><span className="volume-value">{volume}%</span></div>
+        </div><div className="transport-buttons">{mode === 'simple' ? <button className={playing ? 'stop-button' : 'primary'} onClick={() => { if (playing) { engine.stop(); setLoading(false); } else void start('direct'); }}><Icon name={playing ? 'stop' : 'play'}/>{playing ? '停止播放' : '开始播放'} <kbd>Space</kbd></button> : !playing ? <><button className="primary" disabled={!list.length} onClick={() => void start('direct')}><Icon name="play"/>直接播放 <kbd>↵</kbd></button><button disabled={!list.length} onClick={() => void start('prepare')}>准备模式 <kbd>Space</kbd></button><button disabled={!list.length} onClick={() => void start('count')}>一小节后开始 <kbd>N</kbd></button></> : <><button className="stop-button" onClick={() => { engine.stop(); setLoading(false); }}><Icon name="stop"/>{position.phase === 'playing' ? '停止播放' : '取消播放'} <kbd>⌫</kbd></button>{preparing && <><button className="primary" onClick={() => engine.enter(0)}>下一小节开始 <kbd>Space</kbd></button><button onClick={() => engine.enter(1)}>下下小节开始 <kbd>N</kbd></button><button onClick={() => engine.enter(2)}>下下下小节开始 <kbd>M</kbd></button></>}</>}</div></div>
+      </section>
+      {mode === 'sequence' && <section ref={editorRef} className="editor" aria-label="段落编辑器"><div className="editor-heading"><h3>段落列表</h3><label className="follow"><input type="checkbox" checked={follow} onChange={e => setFollow(e.target.checked)}/>列表滚动跟随播放</label></div><div className="editor-toolbar"><div><button disabled={sequenceLocked} onClick={() => add()}><Icon name="plus"/>新增段落</button><button disabled={sequenceLocked} onClick={() => add(insertion, [{ type: 'comment', text: '段落注释' }])}><Icon name="note"/>新增注释</button><span className="toolbar-divider"/><button className="icon-button" aria-label="撤销" disabled={sequenceLocked || !tab.past.length} onClick={() => history('undo')}><Icon name="undo"/></button><button className="icon-button" aria-label="重做" disabled={sequenceLocked || !tab.future.length} onClick={() => history('redo')}><Icon name="redo"/></button></div><button disabled={sequenceLocked} onClick={textEditor}><Icon name="text"/>文本编辑 <kbd>V</kbd></button></div>
+        <div ref={scrollRef} className="table-scroll" onClick={e => { if (drag.current?.moved || (e.target as HTMLElement).closest('[data-row-id],button,input,select,textarea')) return; setPasteAt(null); if (!e.ctrlKey && !e.metaKey) { setSelection(new Set()); anchor.current = null; } }} onPointerDown={e => {
+          if (e.button !== 0 || (e.target as HTMLElement).closest('input,button,select,textarea,a,summary')) return;
+          e.preventDefault(); if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+          setPasteAt(null);
+          drag.current = { x: e.clientX, y: e.clientY, moved: false, initial: e.ctrlKey || e.metaKey ? new Set(selection) : new Set() };
+        }}><div className="table-head" aria-hidden="true"><span>起始小节</span><span>结束小节</span><span>拍号</span><span>速度 <small>♩ = BPM</small></span><span>小节数</span></div><div className="table-body">{song.rows.flatMap((row, index) => [gap(index), <div id={`row-${row.id}`} data-row-id={row.id} key={row.id} role="row" aria-selected={selection.has(row.id)} aria-label={`第 ${index + 1} 行`} className={`segment-row ${row.type === 'comment' ? 'comment-row' : ''} ${selection.has(row.id) ? 'selected' : ''} ${position.sectionId === row.id ? 'current' : ''}`} onClick={e => { if (drag.current?.moved || (e.target as HTMLElement).closest('input,select,button,textarea')) return; selectRow(row.id, e.shiftKey, e.ctrlKey || e.metaKey); }}>
+          {row.type === 'comment' ? <div className="comment-content"><span>#</span><input aria-label={`第 ${index + 1} 行注释`} disabled={sequenceLocked} value={row.text} onChange={e => modifyRow(row.id, { text: e.target.value })}/></div> : <><div className="start-cell">{row.id === list[0]?.id ? <span className="fixed-start">1</span> : <NumberField label={`第 ${index + 1} 行起始小节`} value={row.start} min={list[list.findIndex(r => r.id === row.id) - 1].start + 1} max={sectionEnd(song, row.id)} integer disabled={sequenceLocked} onCommit={start => modifyRow(row.id, { start })}/>}</div><div className="end-cell">{row.id === list.at(-1)?.id ? <NumberField label="曲目最后小节" value={song.endExclusive - 1} min={row.start} max={Number.MAX_SAFE_INTEGER - 1} integer disabled={sequenceLocked} onCommit={end => updateSong(s => ({ ...s, endExclusive: end + 1 }))}/> : <span>{sectionEnd(song, row.id)}</span>}</div><MeterFields label={`第 ${index + 1} 行`} meter={row.meter} disabled={sequenceLocked} onChange={meter => modifyRow(row.id, { meter })}/><div className="bpm-cell"><NumberField label={`第 ${index + 1} 行 BPM`} value={row.bpm} min={20} max={400} disabled={sequenceLocked} onCommit={bpm => modifyRow(row.id, { bpm })}/></div><span className="length-cell">{position.phase === 'playing' && position.sectionId === row.id ? <><strong>{position.localBar}</strong><span>/ {sectionEnd(song, row.id) - row.start + 1}</span></> : sectionEnd(song, row.id) - row.start + 1}</span></>}
+        </div>])}{gap(song.rows.length)}{!list.length && <div className="empty-state">还没有演奏段落。</div>}</div></div>
+        <div className="selection-toolbar"><button disabled={!selection.size} onClick={() => void toolbarCopy()}><Icon name="copy"/>复制 <kbd>Ctrl C</kbd></button><button disabled={sequenceLocked} onClick={() => void toolbarPaste()}><Icon name="paste"/>粘贴 <kbd>Ctrl V</kbd></button><button disabled={sequenceLocked || !selection.size} className="delete-action" onClick={() => remove()}><Icon name="trash"/>删除 <kbd>Del</kbd></button></div>
+      </section>}
+    </main>
     <input ref={fileInput} type="file" accept=".txt,.json,text/plain,application/json" hidden onChange={e => { void importFile(e.target.files?.[0]); e.currentTarget.value = ''; }}/>
     {notice && <div className="toast" role="status">{notice}</div>}{marquee && <div className="marquee" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }}/ >}
+
     {modal && <Dialog title={modal.type === 'text' ? '编辑曲目文本' : modal.type === 'rename' ? '重命名曲目' : modal.type === 'close' ? '保存修改？' : modal.type === 'library' ? '打开已保存曲目' : modal.title} close={() => setModal(null)} footer={modal.type === 'text' ? <><button onClick={() => setModal(null)}>取消</button><button className="primary" onClick={acceptText}>确定</button></> : modal.type === 'rename' ? <><button onClick={() => setModal(null)}>取消</button><button className="primary" disabled={!modal.text.trim()} onClick={() => { setAll(tabsRef.current.map(t => t.id === modal.tabId ? commit(t, { ...t.song, title: modal.text.trim() }) : t)); setModal(null); }}>确定</button></> : modal.type === 'close' ? <><button onClick={() => setModal(null)}>取消</button><button onClick={() => finishClose(modal.tabId)}>不保存</button><button className="primary" onClick={() => { if (save(modal.tabId)) finishClose(modal.tabId); }}>保存</button></> : <button className="primary" onClick={() => setModal(null)}>确定</button>}>
-      {modal.type === 'text' ? <><div className="format-help"><strong>每段一行：起始小节 拍号 BPM</strong><span>例如：<code>1 4/4 120</code>。<code>#</code> 开头为注释，最后独立数字为最后实际小节 + 1。第一段从 1 开始，BPM 以四分音符计。</span></div><textarea autoFocus spellCheck={false} aria-label="曲目文本" className="text-editor" value={modal.text} onChange={e => { setModal({ ...modal, text: e.target.value }); setParseError(''); }}/>{parseError && <pre className="parse-error" role="alert">{parseError}</pre>}</> : modal.type === 'rename' ? <label className="rename-label">曲目名称<input autoFocus maxLength={100} value={modal.text} onFocus={e => e.target.select()} onChange={e => setModal({ ...modal, text: e.target.value })} onKeyDown={e => { if (e.key === 'Enter' && modal.text.trim() && !e.nativeEvent.isComposing) { setAll(tabsRef.current.map(t => t.id === modal.tabId ? commit(t, { ...t.song, title: modal.text.trim() }) : t)); setModal(null); } }}/></label> : modal.type === 'library' ? <div className="saved-list">{modal.entries.length ? modal.entries.map(entry => <button key={entry.id} onClick={() => openSaved(entry)}><span>{entry.song.title}</span><small>{sections(entry.song).length} 段 · {entry.song.endExclusive - 1} 小节</small></button>) : <p>还没有保存的曲目。使用 Ctrl+S 保存后会显示在这里。</p>}</div> : modal.type === 'close' ? <p>“{tabs.find(t => t.id === modal.tabId)?.song.title}”有未保存的修改。</p> : <p className="message-text">{modal.type === 'message' ? modal.text : ''}</p>}
+      {modal.type === 'text' ? <><div className="format-help"><strong>每段一行：起始小节 拍号 BPM</strong><span>例如：<code>1 4/4 120</code>。<code>#</code> 开头为注释，最后独立数字为最后实际小节 + 1。第一段从 1 开始，</span></div><textarea autoFocus spellCheck={false} aria-label="曲目文本" className="text-editor" value={modal.text} onChange={e => { setModal({ ...modal, text: e.target.value }); setParseError(''); }}/>{parseError && <pre className="parse-error" role="alert">{parseError}</pre>}</> : modal.type === 'rename' ? <label className="rename-label">曲目名称<input autoFocus maxLength={100} value={modal.text} onFocus={e => e.target.select()} onChange={e => setModal({ ...modal, text: e.target.value })} onKeyDown={e => { if (e.key === 'Enter' && modal.text.trim() && !e.nativeEvent.isComposing) { setAll(tabsRef.current.map(t => t.id === modal.tabId ? commit(t, { ...t.song, title: modal.text.trim() }) : t)); setModal(null); } }}/></label> : modal.type === 'library' ? <div className="saved-list">{modal.entries.length ? modal.entries.map(entry => <button key={entry.id} onClick={() => openSaved(entry)}><span>{entry.song.title}</span><small>{sections(entry.song).length} 段 · {entry.song.endExclusive - 1} 小节</small></button>) : <p>还没有保存的曲目。使用 Ctrl+S 保存后会显示在这里。</p>}</div> : modal.type === 'close' ? <p>“{tabs.find(t => t.id === modal.tabId)?.song.title}”有未保存的修改。</p> : <p className="message-text">{modal.type === 'message' ? modal.text : ''}</p>}
     </Dialog>}
-    {parsePopup && <Dialog title="解析失败" close={() => setParsePopup(false)} footer={<button className="primary" onClick={() => setParsePopup(false)}>返回编辑</button>}><p className="message-text">{parseError}</p></Dialog>}
+
   </div>;
 }
