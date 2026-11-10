@@ -4,14 +4,14 @@
 
 ## 本地运行
 
-需要 Node.js 22.12 或更新版本，以及 pnpm 11.25。依赖已安装时直接运行：
+建议使用 Node.js 24 LTS 和 pnpm 11.25；已在独立安装的 Node.js 24.22.2、pnpm 11.25.0 环境验证。依赖已安装时直接运行：
 
 ```powershell
 cd E:\Casual\Metronome
-pnpm dev
+pnpm.cmd dev
 ```
 
-浏览器打开 http://127.0.0.1:5173/ 。固定地址和端口，以便使用同一份浏览器本地保存。首次获取项目时执行 `pnpm install --frozen-lockfile` 安装依赖。
+浏览器打开 http://127.0.0.1:5173/ 。固定地址和端口，以便使用同一份浏览器本地保存。首次获取项目时执行 `pnpm.cmd install --frozen-lockfile` 安装依赖。在 Windows PowerShell 中使用 `.cmd` 可以避免同名 PowerShell 脚本受执行策略限制；其他平台直接使用 `pnpm`。
 
 ## 功能
 
@@ -97,9 +97,9 @@ Ctrl+S 仅保存当前曲目，不提交其他曲目未保存的修改。关闭�
 ## 检查与构建
 
 ```powershell
-pnpm test
-pnpm build
-pnpm preview
+pnpm.cmd test
+pnpm.cmd build
+pnpm.cmd preview
 ```
 
 构建产物位于 `dist/`。`pnpm preview` 在 http://127.0.0.1:4173/ 预览生产构建。
@@ -114,6 +114,14 @@ Vite 使用相对资源路径，可将 `dist/` 内容部署至 GitHub Pages 项�
 - `src/App.tsx`：界面、快捷键、标签及编辑交互。
 - `tests/`：编辑、解析、存储与播放测试。
 - `public/sounds/`：节拍音效及许可。
+- `examples/`：可直接导入的文本和 JSON 示例。
+
+## 首版验证
+
+- 42 项自动测试：段落局部递推、删除与注释、文本/JSON 校验、保存与历史、音乐时间线、提前安排音频及取消。
+- TypeScript 类型检查与生产构建通过。
+- 浏览器验证：双击/F2 重命名、插入与删除、撤销清除星号、跨标签多段复制粘贴、保存与刷新恢复、关闭后重新打开、普通模式、准备模式及指定小节进入、解析错误弹窗、文本及 JSON 文件导入、文本下载。
+- JSON 格式往返由自动测试覆盖；JSON 下载的浏览器检查因下载权限未获允许而未完成。
 
 ## 音效许可
 

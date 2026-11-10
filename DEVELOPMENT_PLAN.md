@@ -147,7 +147,7 @@ Backspace 用于准备模式和正式播放的取消。等待进入时重复按�
 
 用 Web Audio API 预加载短音效，按音频时钟提前安排有限时间内的节拍，显示跟随实际播放时间。避免使用界面更新或普通定时器回调作为直接发声依据。停止时取消已安排的声音，变拍变速时保持小节边界连续。
 
-优先选择 CC0 音效，文件随项目保存，记录作者、原链接和许可。候选为 edgyboi1 的 Metronome click：69 毫秒 WAV，标注 CC0，但原文件下载需要登录，后续需要找到可直接获取的合法文件或替代素材并试听。普通拍和首拍以音色或音高、音量区分。
+优先选择 CC0 音效，文件随项目保存，记录作者、原链接和许可。已采用 edgyboi1 的 Metronome click，标注 CC0，使用 Freesound 公开提供的高质量 MP3 预览文件，保存于 public/sounds/click.mp3，并附来源与许可记录。普通拍和首拍以音色或音高、音量区分。
 
 首次播放由用户点击或快捷键触发，处理浏览器要求的音频启用操作。桌面前台播放为第一版主要验证目标；切换后台、手机锁屏等行为需按目标浏览器单独验证。
 
@@ -185,3 +185,10 @@ Backspace 用于准备模式和正式播放的取消。等待进入时重复按�
 - 设计参考：https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md
 - 表格键盘交互：https://www.w3.org/WAI/ARIA/apg/patterns/grid/
 - 浏览器本地存储：https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage
+
+## 首版完成情况
+
+- 已实现普通节拍器、序列编辑与播放、多曲目标签、双击/F2 重命名、Ctrl+S 与本地曲目库。
+- 文本及 JSON 导入、文本下载、文本编辑与错误弹窗已在浏览器验证。JSON 下载因浏览器未获下载权限而未完成实际下载检查，格式往返由自动测试覆盖。
+- 独立安装的 Node.js 24.22.2、pnpm 11.25.0 下，42 项测试、类型检查和生产构建通过。
+- 已增加文本和 JSON 示例，运行及快捷键说明见 README.md。

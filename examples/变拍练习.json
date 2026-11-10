@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "title": "变拍练习 JSON",
+  "endExclusive": 130,
+  "rows": [
+    { "id": "example-a", "type": "section", "start": 1, "meter": [4, 4], "bpm": 120 },
+    { "id": "example-comment", "type": "comment", "text": "变拍 · 留意第 63 小节" },
+    { "id": "example-b", "type": "section", "start": 63, "meter": [2, 4], "bpm": 120 },
+    { "id": "example-c", "type": "section", "start": 64, "meter": [4, 4], "bpm": 120 }
+  ]
+}

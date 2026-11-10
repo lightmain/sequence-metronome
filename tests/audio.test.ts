@@ -24,6 +24,19 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); });
 const sample = () => parseText('1 4/4 400\n2 2/4 120\n3');
 describe('音频事件安排与取消', () => {
+  it('极短小节即使已提前安排到曲尾，仍能改变准备进入时机', async () => {
+    const engine=new AudioEngine();
+    await engine.start(parseText('1 1/32 400\n2'),'count',1);
+    const context=engine.context as unknown as Context;
+    context.currentTime=.04; engine.pump();
+    expect(engine.timeline!.phase).toBe('stopped');
+    engine.enter(1);
+    expect(engine.lastPosition.phase).toBe('waiting');
+    expect(engine.lastPosition.remaining).toBe(2);
+    context.currentTime=.05; engine.pump();
+    expect(engine.events.find(e=>e.phase==='playing')?.time).toBeCloseTo(.1075,10);
+    engine.stop();
+  });
   it('预加载音效，首拍重音，停止时取消已安排声音', async () => {
     const engine = new AudioEngine(); await engine.start(sample(),'direct',1);
     const context = engine.context as unknown as Context;

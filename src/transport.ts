@@ -104,7 +104,8 @@ export class AudioEngine {
   }
   enter(extra: number) {
     const timeline = this.timeline, context = this.context;
-    if (!timeline || !context || !['prepare', 'waiting', 'playing'].includes(timeline.phase)) return;
+    // 提前调度可能已将内部时间线推进到曲尾；是否仍在准备以显示的播放位置判断。
+    if (!timeline || !context || !['prepare', 'waiting'].includes(this.lastPosition.phase)) return;
     // 以听到的状态为准；预排事件可能已经越过准备边界。
     const pending = this.scheduled.filter(s => s.event.time > context.currentTime);
     if (pending.length) {
