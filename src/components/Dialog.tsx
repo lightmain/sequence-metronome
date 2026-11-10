@@ -1,15 +1,19 @@
-import type { ReactNode } from 'react';
+import type { ReactNode, KeyboardEventHandler } from 'react';
 import { useEffect, useRef } from 'react';
 export function Dialog({
   title,
   children,
   footer,
   close,
+  className,
+  onKeyDown,
 }: {
   title: string;
   children: ReactNode;
   footer: ReactNode;
   close: () => void;
+  className?: string;
+  onKeyDown?: KeyboardEventHandler<HTMLDialogElement>;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const focusBefore = useRef<Element | null>(document.activeElement);
@@ -27,6 +31,7 @@ export function Dialog({
   }, []);
   return (
     <dialog
+      className={className}
       ref={ref}
       aria-label={title}
       onCancel={(e) => {
@@ -34,6 +39,7 @@ export function Dialog({
         close();
       }}
       onKeyDown={(e) => {
+        onKeyDown?.(e);
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') e.preventDefault();
         e.stopPropagation();
       }}

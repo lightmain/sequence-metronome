@@ -2,7 +2,29 @@ export type Meter = [number, number];
 export type Section = { id: string; type: 'section'; start: number; meter: Meter; bpm: number };
 export type Comment = { id: string; type: 'comment'; text: string };
 export type Row = Section | Comment;
-export type Song = { version: 1; title: string; endExclusive: number; rows: Row[] };
+// TXT 只携带首拍时间；参考 BPM 缺失时保持缺失。
+export type Alignment = { firstBeatMs: number; referenceBpm?: number };
+export type AudioReference = {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  lastModified: number;
+};
+export type CountIn = { bars: number; meter: Meter; bpm: number };
+export type Music = {
+  audio?: AudioReference;
+  alignment?: Alignment;
+  countIn?: CountIn;
+  volume?: number;
+};
+export type Song = {
+  version: 1 | 2;
+  title: string;
+  endExclusive: number;
+  rows: Row[];
+  music?: Music;
+};
 export type ClipRow =
   | { type: 'section'; length: number; meter: Meter; bpm: number }
   | { type: 'comment'; text: string };
@@ -19,8 +41,17 @@ export function sectionEnd(song: Song, id: string) {
 }
 export const beatSeconds = (meter: Meter, bpm: number) => ((60 / bpm) * 4) / meter[1];
 export function validate(song: Song): Song {
-  if (!song || song.version !== 1 || typeof song.title !== 'string' || !Array.isArray(song.rows))
-    throw Error('曲目格式不正确，version 必须为 1。');
+  if (
+    !song ||
+    ![1, 2].includes(song.version) ||
+    typeof song.title !== 'string' ||
+    !Array.isArray(song.rows)
+  )
+    throw Error('曲目格式不正确，version 必须为 1 或 2。');
+  if (song.music !== undefined) {
+    if (song.version !== 2) throw Error('音乐参数需要曲目格式 version 2。');
+    validateMusic(song.music);
+  }
   if (!song.title.trim() || song.title.length > 200) throw Error('曲目名称须为 1–200 个字符。');
   if (song.rows.length > MAX_ROWS) throw Error(`曲目最多包含 ${MAX_ROWS} 行。`);
   if (!Number.isSafeInteger(song.endExclusive) || song.endExclusive < 1)
@@ -164,6 +195,7 @@ export function copyRows(song: Song, selected: Set<string>): ClipRow[] {
 export function exportText(song: Song) {
   return (
     [
+      ...(song.music?.alignment ? [`Aligned ${song.music.alignment.firstBeatMs}`] : []),
       ...song.rows.flatMap((r) =>
         r.type === 'comment'
           ? r.text.split(/\r?\n/).map((line) => '#' + line)
@@ -186,7 +218,16 @@ export function parseText(text: string, title = '导入曲目'): Song {
     const line = source.trim();
     if (!line) continue;
     try {
-      if (line.startsWith('#')) song.rows.push({ id: uid(), type: 'comment', text: line.slice(1) });
+      if (/^Aligned\b/i.test(line)) {
+        if (song.music?.alignment) throw Error('Aligned 声明重复。');
+        if (song.rows.length || ended) throw Error('Aligned 声明必须位于文本开头。');
+        const match = /^Aligned\s+([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)$/.exec(line);
+        if (!match || !Number.isFinite(Number(match[1])))
+          throw Error('Aligned 后须为有限的首拍时间，单位为毫秒。');
+        song.version = 2;
+        song.music = { alignment: { firstBeatMs: Number(match[1]) } };
+      } else if (line.startsWith('#'))
+        song.rows.push({ id: uid(), type: 'comment', text: line.slice(1) });
       else if (/^\d+$/.test(line)) {
         if (ended) throw Error('只能有一个结束数字。');
         song.endExclusive = Number(line);
@@ -232,7 +273,7 @@ export function parseJson(text: string): Song {
 }
 export const fingerprint = (song: Song) =>
   JSON.stringify({
-    version: 1,
+    version: song.version,
     title: song.title,
     endExclusive: song.endExclusive,
     rows: song.rows.map((row) =>
@@ -240,7 +281,94 @@ export const fingerprint = (song: Song) =>
         ? { id: row.id, type: row.type, text: row.text }
         : { id: row.id, type: row.type, start: row.start, meter: row.meter, bpm: row.bpm },
     ),
+    music: song.music && {
+      audio: song.music.audio && {
+        id: song.music.audio.id,
+        name: song.music.audio.name,
+        size: song.music.audio.size,
+        type: song.music.audio.type,
+        lastModified: song.music.audio.lastModified,
+      },
+      alignment: song.music.alignment && {
+        firstBeatMs: song.music.alignment.firstBeatMs,
+        referenceBpm: song.music.alignment.referenceBpm,
+      },
+      countIn: song.music.countIn && {
+        bars: song.music.countIn.bars,
+        meter: song.music.countIn.meter,
+        bpm: song.music.countIn.bpm,
+      },
+      volume: song.music.volume,
+    },
   });
+
+/** 页面文本编辑只修改段落和 TXT 包含的首拍参数，保留音频关联及预备设置。 */
+export function applyText(original: Song, text: string): Song {
+  const parsed = parseText(text, original.title);
+  if (!original.music) return original.version === 2 ? { ...parsed, version: 2 } : parsed;
+  const alignment = parsed.music?.alignment;
+  return validate({
+    ...parsed,
+    version: 2,
+    music: {
+      ...original.music,
+      alignment: alignment && {
+        ...alignment,
+        referenceBpm: original.music.alignment?.referenceBpm,
+      },
+    },
+  });
+}
+
+function validateMusic(music: Music) {
+  if (!music || typeof music !== 'object' || Array.isArray(music))
+    throw Error('音乐参数格式不正确。');
+  if (music.alignment !== undefined) {
+    const a = music.alignment;
+    if (!a || !Number.isFinite(a.firstBeatMs)) throw Error('首拍时间须为有限的毫秒数。');
+    if (a.referenceBpm !== undefined && (!Number.isFinite(a.referenceBpm) || a.referenceBpm <= 0))
+      throw Error('参考 BPM 须为正数。');
+  }
+  if (music.audio !== undefined) {
+    const a = music.audio;
+    if (
+      !a ||
+      typeof a.id !== 'string' ||
+      !a.id ||
+      typeof a.name !== 'string' ||
+      !a.name ||
+      typeof a.type !== 'string' ||
+      !Number.isSafeInteger(a.size) ||
+      a.size <= 0 ||
+      !Number.isSafeInteger(a.lastModified) ||
+      a.lastModified < 0
+    )
+      throw Error('音频文件识别信息不正确。');
+  }
+  if (music.countIn !== undefined) {
+    const c = music.countIn;
+    if (
+      !c ||
+      !Number.isSafeInteger(c.bars) ||
+      c.bars < 0 ||
+      !Array.isArray(c.meter) ||
+      c.meter.length !== 2 ||
+      !Number.isInteger(c.meter[0]) ||
+      c.meter[0] < 1 ||
+      c.meter[0] > 32 ||
+      !denominators.includes(c.meter[1]) ||
+      !Number.isFinite(c.bpm) ||
+      c.bpm < 20 ||
+      c.bpm > 400
+    )
+      throw Error('预备节拍参数不正确。');
+  }
+  if (
+    music.volume !== undefined &&
+    (!Number.isFinite(music.volume) || music.volume < 0 || music.volume > 1)
+  )
+    throw Error('音频音量须在 0–1 之间。');
+}
 
 export function parseClipboard(text: string): ClipRow[] {
   if (new TextEncoder().encode(text).byteLength > MAX_IMPORT_BYTES)

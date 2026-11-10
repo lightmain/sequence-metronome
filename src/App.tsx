@@ -6,9 +6,14 @@ import type { Modal } from './components/WorkspaceDialog';
 import { SongTabs } from './components/SongTabs';
 import { PlaybackPanel } from './components/PlaybackPanel';
 import { SegmentEditor } from './components/SegmentEditor';
-import type { ClipRow, Meter, Row, Section, Song } from './model';
+import { MusicPanel } from './components/MusicPanel';
+import { AlignmentWorkspace } from './components/AlignmentWorkspace';
+import { useMusic } from './hooks/useMusic';
+import { stopped } from './transport';
+import type { ClipRow, Meter, Music, Row, Section, Song } from './model';
 import {
   clone,
+  applyText,
   copyRows,
   exampleSong,
   exportText,
@@ -85,9 +90,13 @@ export default function App() {
     initial.error ? { type: 'message', title: '读取失败', text: initial.error } : null,
   );
   const [parseError, setParseError] = useState('');
-  const { engine, position, loading, startPlayback, stopPlayback } = useAudioTransport((text) =>
-    message('播放失败', text),
-  );
+  const {
+    engine,
+    position: purePosition,
+    loading,
+    startPlayback,
+    stopPlayback: stopPure,
+  } = useAudioTransport((text) => message('播放失败', text));
   const [startBar, setStartBar] = useState(1),
     [follow, setFollow] = useState(true);
   const [simple, setSimple] = useState({ meter: [4, 4] as Meter, bpm: 120 });
@@ -97,6 +106,17 @@ export default function App() {
   const fileInput = useRef<HTMLInputElement>(null);
   const tab = tabs.find((t) => t.id === active) ?? tabs[0],
     song = tab.song;
+  const music = useMusic(engine, song, (text) => message('音频操作失败', text));
+  const retainAudio = music.retain;
+  const [aligning, setAligning] = useState(false);
+  const audioActive = music.state.phase !== 'stopped';
+  const position = audioActive
+    ? (music.state.position ?? { ...stopped, bar: 0, beat: -1 })
+    : purePosition;
+  const stopPlayback = useEvent(() => {
+    stopPure();
+    music.stop();
+  });
   const {
     selection,
     setSelection,
@@ -110,7 +130,7 @@ export default function App() {
     selectRow,
   } = useRowSelection(song.rows);
   const list = useMemo(() => sections(song), [song]),
-    playing = position.phase !== 'stopped' || loading;
+    playing = purePosition.phase !== 'stopped' || loading || audioActive;
   const sequenceLocked = playing && mode === 'sequence';
   const dirtyTabs = useMemo(() => new Map(tabs.map((t) => [t.id, dirty(t)])), [tabs]);
   const editorPosition = useMemo(
@@ -161,6 +181,17 @@ export default function App() {
       message('修改失败', errorText(error));
     }
   });
+  const changeMusic = useEvent((parameters: Music, id = activeRef.current) => {
+    try {
+      setAll(
+        tabsRef.current.map((t) =>
+          t.id === id ? commit(t, { ...t.song, version: 2, music: parameters }) : t,
+        ),
+      );
+    } catch (error) {
+      message('修改失败', errorText(error));
+    }
+  });
   const modifyRow = useEvent(function modifyRow(
     id: string,
     change: Partial<Section> | { text: string },
@@ -194,11 +225,23 @@ export default function App() {
   });
   const save = useEvent(async function save(id: string = activeRef.current): Promise<boolean> {
     try {
-      await withStorageLock(() => {
+      await withStorageLock(async () => {
         const current = tabsRef.current;
+        const snapshot = current.find((t) => t.id === id);
+        if (!snapshot) return;
+        await music.saveFiles(snapshot.song);
         persistWorkspace(localStorage, current, activeRef.current, id);
-        setAll(current.map((t) => (t.id === id ? { ...t, saved: fingerprint(t.song) } : t)));
+        setAll(
+          tabsRef.current.map((t) =>
+            t.id === id ? { ...t, saved: fingerprint(snapshot.song) } : t,
+          ),
+        );
       });
+      void music
+        .cleanup(tabsRef.current.flatMap((t) => [t.song, ...t.past, ...t.future]))
+        .catch(() => {
+          /* 清理失败不撤销已完成的保存，后续保存会重试。 */
+        });
       toast('已保存到此浏览器');
       return true;
     } catch (error) {
@@ -212,6 +255,7 @@ export default function App() {
   const switchTab = useEvent(function switchTab(id: string) {
     if (id === activeRef.current) return;
     stopPlayback();
+    setAligning(false);
     activeRef.current = id;
     setActive(id);
     setSelection(new Set());
@@ -295,7 +339,7 @@ export default function App() {
   const acceptText = useEvent(function acceptText() {
     if (modal?.type !== 'text') return;
     try {
-      const parsed = parseText(modal.text, song.title);
+      const parsed = applyText(song, modal.text);
       updateSong(() => parsed);
       setModal(null);
       setParseError('');
@@ -371,6 +415,7 @@ export default function App() {
   });
   const start = useEvent(async function start(kind: 'direct' | 'prepare' | 'count') {
     if (loading || (mode === 'sequence' && !list.length)) return;
+    music.stop();
     const playable =
       mode === 'simple'
         ? {
@@ -393,6 +438,13 @@ export default function App() {
     );
   });
   useEffect(() => () => clearTimeout(noticeTimer.current), []);
+  useEffect(() => {
+    retainAudio(tabs.flatMap((t) => [t.song, ...t.past, ...t.future]));
+  }, [tabs, retainAudio]);
+  useEffect(() => {
+    if (music.player.purpose !== 'synthesis')
+      music.player.setVolumes(song.music?.volume ?? 0.65, volume / 100);
+  }, [volume, song.music?.volume, music.player]);
   useEffect(() => {
     const container = scrollRef.current;
     const row = position.sectionId ? document.getElementById('row-' + position.sectionId) : null;
@@ -426,7 +478,7 @@ export default function App() {
     if (e.isComposing || e.repeat) return;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
       e.preventDefault();
-      if (modal) {
+      if (modal || aligning) {
         toast('请先确认或关闭对话框，再保存曲目');
         return;
       }
@@ -436,8 +488,16 @@ export default function App() {
       save();
       return;
     }
-    if (modal) return;
+    if (modal || aligning) return;
     if (isEditing(e.target)) return;
+    if (audioActive && !e.ctrlKey && !e.metaKey && (e.key === ' ' || e.key === 'Backspace')) {
+      e.preventDefault();
+      if (e.key === 'Backspace') music.stop();
+      else if (music.state.phase === 'playing' || music.state.phase === 'loading')
+        music.player.pause();
+      else void music.player.resume();
+      return;
+    }
     if (e.key === 'F2') {
       e.preventDefault();
       rename();
@@ -488,13 +548,13 @@ export default function App() {
     }
   });
   const copy = useEvent((e: ClipboardEvent) => {
-    if (modal || isEditing(e.target) || !selection.size || mode !== 'sequence') return;
+    if (modal || aligning || isEditing(e.target) || !selection.size || mode !== 'sequence') return;
     e.preventDefault();
     e.clipboardData?.setData('text/plain', clipboardText());
     toast(`已复制 ${selection.size} 行`);
   });
   const paste = useEvent((e: ClipboardEvent) => {
-    if (modal || isEditing(e.target) || mode !== 'sequence' || sequenceLocked) return;
+    if (modal || aligning || isEditing(e.target) || mode !== 'sequence' || sequenceLocked) return;
     e.preventDefault();
     pasteText(e.clipboardData?.getData('text/plain') ?? '');
   });
@@ -511,15 +571,21 @@ export default function App() {
 
   const preparing = position.phase === 'prepare';
   const countdown = position.phase === 'countdown';
-  const status = loading
-    ? '正在加载音效'
-    : position.phase === 'playing' || position.phase === 'simple'
-      ? '正在播放'
-      : preparing
-        ? '准备模式'
-        : countdown
-          ? '即将开始'
-          : '就绪';
+  const status = audioActive
+    ? music.state.phase === 'paused'
+      ? '音乐已暂停'
+      : music.state.phase === 'loading'
+        ? '正在加载音频'
+        : '正在播放音乐'
+    : loading
+      ? '正在加载音效'
+      : position.phase === 'playing' || position.phase === 'simple'
+        ? '正在播放'
+        : preparing
+          ? '准备模式'
+          : countdown
+            ? '即将开始'
+            : '就绪';
 
   return (
     <div className="app-shell">
@@ -617,6 +683,7 @@ export default function App() {
           displayMeter={displayMeter}
           displayBpm={displayBpm}
           status={status}
+          audioActive={audioActive}
           list={list}
           setStartBar={setStartBar}
           simple={simple}
@@ -627,6 +694,24 @@ export default function App() {
           stopPlayback={stopPlayback}
           start={start}
         />
+        {mode === 'sequence' && (
+          <MusicPanel
+            key={active}
+            song={song}
+            music={music}
+            engine={engine}
+            volume={volume}
+            change={(parameters) => changeMusic(parameters, tab.id)}
+            locked={sequenceLocked}
+            error={(text) => message('音频操作失败', text)}
+            begin={stopPure}
+            align={() => {
+              stopPlayback();
+              music.player.setVolumes(song.music?.volume ?? 0.65, volume / 100);
+              setAligning(true);
+            }}
+          />
+        )}
         {mode === 'sequence' && (
           <SegmentEditor
             editorRef={editorRef}
@@ -691,6 +776,19 @@ export default function App() {
           finishClose={finishClose}
           renameSong={renameSong}
           openSaved={openSaved}
+        />
+      )}
+      {aligning && music.buffer && (
+        <AlignmentWorkspace
+          buffer={music.buffer}
+          player={music.player}
+          state={music.state}
+          initial={song.music?.alignment}
+          close={() => setAligning(false)}
+          finish={(alignment) => {
+            changeMusic({ ...song.music, alignment });
+            setAligning(false);
+          }}
         />
       )}
     </div>

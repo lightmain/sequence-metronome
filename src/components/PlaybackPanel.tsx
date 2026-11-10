@@ -5,6 +5,7 @@ import { Icon, MeterFields, NumberField } from './Controls';
 
 type Props = {
   playing: boolean;
+  audioActive?: boolean;
   mode: 'simple' | 'sequence';
   preparing: boolean;
   position: Position;
@@ -13,7 +14,7 @@ type Props = {
   song: Song;
   displayMeter: number[];
   displayBpm: number;
-  status: '正在加载音效' | '正在播放' | '准备模式' | '即将开始' | '就绪';
+  status: string;
   list: Section[];
   setStartBar: Dispatch<SetStateAction<number>>;
   simple: { meter: Meter; bpm: number };
@@ -26,6 +27,7 @@ type Props = {
 };
 export function PlaybackPanel({
   playing,
+  audioActive,
   mode,
   preparing,
   position,
@@ -159,7 +161,7 @@ export function PlaybackPanel({
               <Icon name={playing ? 'stop' : 'play'} />
               {playing ? '停止播放' : '开始播放'} <kbd>Space</kbd>
             </button>
-          ) : !playing ? (
+          ) : !playing || audioActive ? (
             <>
               <button
                 className="primary"

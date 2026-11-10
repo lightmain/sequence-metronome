@@ -19,7 +19,7 @@ const savedTab = (id: string): Tab => {
 };
 
 describe('本地格式迁移、冲突和损坏恢复', () => {
-  it('V1 可读取，下一次保存迁移到 V2 且标签不再重复存储曲目', () => {
+  it('旧格式可读取，下一次保存迁移到 V4 保存格式且标签不再重复存储曲目', () => {
     const tab = savedTab('a');
     const storage = memory({
       version: 1,
@@ -30,7 +30,7 @@ describe('本地格式迁移、冲突和损坏恢复', () => {
     expect(loadWorkspace(storage)!.tabs[0].song).toEqual(tab.song);
     persistWorkspace(storage, [tab], 'a', 'a');
     const raw = JSON.parse(storage.getItem());
-    expect(raw.version).toBe(2);
+    expect(raw.version).toBe(3);
     expect(raw.tabs).toEqual(['a']);
     expect(raw.library).toHaveLength(1);
   });

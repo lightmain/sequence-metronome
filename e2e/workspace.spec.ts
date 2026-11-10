@@ -140,7 +140,7 @@ test('项目子路径音效解码与模拟输出，M 确定倒计时后不再变
 });
 
 test('文件导入打开新标签，关闭未保存曲目可取消', async ({ page }) => {
-  await page.locator('input[type=file]').setInputFiles({
+  await page.locator('input[type=file][accept*=".txt"]').setInputFiles({
     name: '练习.txt',
     mimeType: 'text/plain',
     buffer: Buffer.from('1 3/4 90\n4'),

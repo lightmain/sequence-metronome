@@ -1142,6 +1142,87 @@ dialog::backdrop {
 .selection-toolbar kbd {
   font-size: 11px;
 }
+.music-panel {
+  margin: 18px 0;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  display: grid;
+  gap: 14px;
+}
+.music-actions,
+.music-transport,
+.alignment-values,
+.tap-statistics {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.music-actions label,
+.music-volume {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.music-actions input[type='number'] {
+  width: 88px;
+}
+.music-transport > input[type='range'] {
+  flex: 1;
+  min-width: 180px;
+}
+.music-transport > span {
+  font-variant-numeric: tabular-nums;
+}
+.audio-name {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.music-volume input {
+  width: 110px;
+}
+.music-panel input[type='range'],
+.alignment-workspace input[type='range'] {
+  accent-color: var(--green);
+}
+dialog.alignment-workspace {
+  width: calc(100vw - 64px);
+  max-width: none;
+  height: calc(100vh - 64px);
+  max-height: none;
+  display: flex;
+  flex-direction: column;
+}
+.alignment-workspace::backdrop {
+  backdrop-filter: blur(10px);
+}
+.alignment-workspace .dialog-body {
+  flex: 1;
+  overflow: auto;
+}
+.alignment-content {
+  display: grid;
+  gap: 28px;
+  max-width: 1150px;
+  margin: 32px auto;
+}
+.alignment-content h3 {
+  font-size: 24px;
+}
+.tap-statistics,
+.alignment-values {
+  padding: 28px 0;
+  font-size: 20px;
+  gap: 28px;
+}
+.alignment-ready {
+  color: #157347;
+  font-weight: 600;
+}
 @media (max-width: 1100px) {
   .player-display {
     gap: 35px;

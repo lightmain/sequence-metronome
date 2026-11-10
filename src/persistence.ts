@@ -4,7 +4,7 @@ import type { Tab } from './storage';
 export type SavedEntry = { id: string; song: Song };
 export const STORAGE_KEY = 'metronome.workspace.v1';
 type Document = {
-  version: 2;
+  version: 3;
   active: string;
   tabs: string[];
   library: SavedEntry[];
@@ -30,7 +30,7 @@ function readDocument(storage: Reader): Document | null {
   }
   if (
     !record(data) ||
-    ![1, 2].includes(data.version as number) ||
+    ![1, 2, 3].includes(data.version as number) ||
     !Array.isArray(data.tabs) ||
     typeof data.active !== 'string'
   )
@@ -71,7 +71,7 @@ function readDocument(storage: Reader): Document | null {
       ? data.tabs.flatMap((item) => (record(item) && typeof item.id === 'string' ? [item.id] : []))
       : data.tabs.filter((id): id is string => typeof id === 'string');
   return {
-    version: 2,
+    version: 3,
     active: data.active,
     tabs: [...new Set(tabs)].filter((id) => ids.has(id)),
     library,
@@ -126,7 +126,7 @@ export function persistWorkspace(
   storage.setItem(
     STORAGE_KEY,
     JSON.stringify({
-      version: 2,
+      version: 3,
       active,
       tabs: tabs.filter((t) => library.has(t.id)).map((t) => t.id),
       library: [...library.values()],
