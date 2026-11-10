@@ -3,3 +3,5 @@ dist/
 .pnpm-store/
 *.tsbuildinfo
 test-results/
+playwright-report/
+coverage/

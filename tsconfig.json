@@ -1,10 +1,17 @@
 {
   "compilerOptions": {
-    "target": "ES2022", "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    "module": "ESNext", "moduleResolution": "Bundler", "jsx": "react-jsx",
-    "strict": true, "skipLibCheck": true, "noEmit": true,
-    "allowImportingTsExtensions": true, "verbatimModuleSyntax": true,
-    "noUnusedLocals": true, "noUnusedParameters": true
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
   },
-  "include": ["src", "tests", "vite.config.ts"]
+  "include": ["src", "tests", "e2e", "*.config.ts"]
 }
