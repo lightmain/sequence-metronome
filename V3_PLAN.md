@@ -1,6 +1,8 @@
 # V3 工程改进与 GitHub Pages 部署计划
 
-状态：本地实现和检查完成，等待 GitHub Actions 及线上部署验收。V2 完成提交为 `19705d9`；当前应用版本为 3.0.0。V3 保持 V2 已确认的界面和音乐规则。
+状态：V3 已完成并部署。V2 完成提交为 `19705d9`；V3 功能提交为 `4e998d8`，当前应用版本为 3.0.0。V3 保持 V2 已确认的界面和音乐规则。
+
+2026-11-10 验收：[GitHub Actions](https://github.com/lightmain/sequence-metronome/actions/runs/42796695751) 的 Windows/Linux 检查、浏览器测试、构建及发布全部成功。[线上页面](https://lightmain.github.io/sequence-metronome/) 返回 200，脚本、样式及 WAV 子路径资源正常；通过原生 AudioContext（浏览器音频上下文）的序列和普通播放状态、拍灯推进、停止、保存与刷新恢复验证，无页面脚本错误。音效解码为双声道 44100 Hz、3043 个采样（约 69 ms）。
 
 ## 实施记录
 
