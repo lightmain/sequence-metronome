@@ -140,6 +140,9 @@ async function expectTapPulse(workspace: Locator) {
   const line = workspace.locator('.tap-wave-line').first();
   await expect(line).toBeVisible();
   await expect(line).toHaveCSS('display', 'block');
+  await expect
+    .poll(() => line.evaluate((element) => element.getAnimations().length))
+    .toBeGreaterThan(0);
 }
 
 test('减少动态偏好下打拍仍显示扩散竖线', async ({ page }) => {
@@ -153,7 +156,10 @@ test('减少动态偏好下打拍仍显示扩散竖线', async ({ page }) => {
   const line = workspace.locator('.tap-wave-line').first();
   await expect(line).toBeVisible();
   await expect(line).toHaveCSS('display', 'block');
-  await expect(line).toHaveCSS('animation-duration', '0.55s');
+  const durations = await line.evaluate((element) =>
+    element.getAnimations().map((animation) => animation.effect?.getTiming().duration),
+  );
+  expect(durations).toContain(550);
 });
 
 test('WAV 和 MP3 合成、实际解码的时间对齐、下载、过期结果与 MP3 重新导入', async ({ page }) => {

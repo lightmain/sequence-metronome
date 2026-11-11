@@ -1355,8 +1355,6 @@ dialog.alignment-workspace {
   transition: width 0.12s linear;
 }
 .tap-stage {
-  --tap-travel: 380px;
-  --tap-duration: 1.35s;
   position: relative;
   height: 74px;
   margin: 4px 0 2px;
@@ -1364,6 +1362,7 @@ dialog.alignment-workspace {
   border-radius: 8px;
   background: #fbfcf8;
   overflow: hidden;
+  contain: layout paint style;
 }
 .tap-stage-axis {
   position: absolute;
@@ -1389,13 +1388,9 @@ dialog.alignment-workspace {
   margin-left: -1.5px;
   border-radius: 1.5px;
   background: #6f8a70;
-  animation: tap-wave-left var(--tap-duration) linear forwards;
-  will-change: transform, opacity;
+  opacity: 0;
 }
-.tap-wave-line.right {
-  animation-name: tap-wave-right;
-}
-.tap-wave-core {
+.tap-core {
   position: absolute;
   left: 50%;
   top: 8px;
@@ -1404,50 +1399,7 @@ dialog.alignment-workspace {
   margin-left: -3px;
   border-radius: 3px;
   background: var(--green);
-  animation: tap-core-flash 0.42s ease-out forwards;
-  will-change: transform, opacity;
-}
-@keyframes tap-wave-left {
-  0% {
-    transform: translateX(0);
-    opacity: 0;
-  }
-  8% {
-    opacity: 0.95;
-  }
-  60% {
-    opacity: 0.6;
-  }
-  100% {
-    transform: translateX(calc(-1 * var(--tap-travel)));
-    opacity: 0;
-  }
-}
-@keyframes tap-wave-right {
-  0% {
-    transform: translateX(0);
-    opacity: 0;
-  }
-  8% {
-    opacity: 0.95;
-  }
-  60% {
-    opacity: 0.6;
-  }
-  100% {
-    transform: translateX(var(--tap-travel));
-    opacity: 0;
-  }
-}
-@keyframes tap-core-flash {
-  from {
-    opacity: 1;
-    transform: scaleY(0.72);
-  }
-  to {
-    opacity: 0;
-    transform: scaleY(1.04);
-  }
+  opacity: 0;
 }
 .tap-statistics {
   display: flex;
@@ -1647,7 +1599,7 @@ dialog.alignment-workspace {
     top: 8px;
     bottom: 8px;
   }
-  .tap-wave-core {
+  .tap-core {
     top: 6px;
     bottom: 6px;
   }
@@ -1665,15 +1617,6 @@ dialog.alignment-workspace {
   }
   .tap-actions .tap-action {
     min-height: 40px;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .tap-stage {
-    --tap-travel: 64px;
-    --tap-duration: 0.55s;
-  }
-  .tap-wave-core {
-    animation-duration: 0.18s;
   }
 }
 @media (max-width: 1100px) {

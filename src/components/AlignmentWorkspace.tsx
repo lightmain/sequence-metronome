@@ -11,6 +11,12 @@ function previewWindow(alignment: Alignment, audioDuration: number) {
   return { shift, first: start + shift, duration: shift + audioDuration };
 }
 
+const RIPPLE_SLOTS = 10;
+const RIPPLE_TRAVEL = 380;
+const RIPPLE_DURATION = 1350;
+const RIPPLE_REDUCED_TRAVEL = 64;
+const RIPPLE_REDUCED_DURATION = 550;
+
 export function AlignmentWorkspace({
   buffer,
   player,
@@ -31,14 +37,13 @@ export function AlignmentWorkspace({
   const [manual, setManual] = useState<number>();
   const [draft, setDraft] = useState<Alignment>(initial ?? { firstBeatMs: 0 });
   const [step1Time, setStep1Time] = useState(0);
-  const [pulses, setPulses] = useState<number[]>([]);
   const [confirmClose, setConfirmClose] = useState(false);
   const [confirmWeak, setConfirmWeak] = useState(false);
   const statistics = useMemo(() => (taps.length >= 3 ? regressTaps(taps) : undefined), [taps]);
-  const nextPulse = useRef(0);
-  const pulseTimers = useRef(new Set<number>());
   const step1Play = useRef<HTMLButtonElement>(null);
   const step2Play = useRef<HTMLButtonElement>(null);
+  const tapStage = useRef<HTMLDivElement>(null);
+  const waveSlot = useRef(0);
   const previousStep = useRef(step);
   const step1Active = step === 1;
   const step2Active = step === 2;
@@ -79,27 +84,42 @@ export function AlignmentWorkspace({
   };
 
   useEffect(() => {
-    const timers = pulseTimers.current;
-    return () => {
-      for (const timer of timers) window.clearTimeout(timer);
-      timers.clear();
-    };
-  }, []);
-
-  useEffect(() => {
     if (previousStep.current === step) return;
     previousStep.current = step;
     (step === 1 ? step1Play.current : step2Play.current)?.focus();
   }, [step]);
 
-  function pulse() {
-    const id = nextPulse.current++;
-    setPulses((previous) => [...previous, id]);
-    const timer = window.setTimeout(() => {
-      setPulses((previous) => previous.filter((value) => value !== id));
-      pulseTimers.current.delete(timer);
-    }, 1500);
-    pulseTimers.current.add(timer);
+  function ripple() {
+    const stage = tapStage.current;
+    if (!stage) return;
+    const slots = stage.querySelectorAll<HTMLElement>('.tap-wave');
+    if (!slots.length) return;
+    const slot = slots[waveSlot.current];
+    waveSlot.current = (waveSlot.current + 1) % slots.length;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const travel = reduce ? RIPPLE_REDUCED_TRAVEL : RIPPLE_TRAVEL;
+    const duration = reduce ? RIPPLE_REDUCED_DURATION : RIPPLE_DURATION;
+    for (const line of slot.querySelectorAll<HTMLElement>('.tap-wave-line')) {
+      line.getAnimations().forEach((animation) => animation.cancel());
+      const direction = line.classList.contains('right') ? 1 : -1;
+      line.animate(
+        [
+          { transform: 'translateX(0)', opacity: 0.95, offset: 0 },
+          { opacity: 0.6, offset: 0.6 },
+          { transform: `translateX(${direction * travel}px)`, opacity: 0, offset: 1 },
+        ],
+        { duration, easing: 'linear', fill: 'forwards' },
+      );
+    }
+    const core = stage.querySelector<HTMLElement>('.tap-core');
+    core?.getAnimations().forEach((animation) => animation.cancel());
+    core?.animate(
+      [
+        { opacity: 1, transform: 'scaleY(0.72)' },
+        { opacity: 0, transform: 'scaleY(1.04)' },
+      ],
+      { duration: reduce ? 180 : 420, easing: 'ease-out', fill: 'forwards' },
+    );
   }
 
   function preview(alignment: Alignment) {
@@ -135,7 +155,6 @@ export function AlignmentWorkspace({
     const alignment = lockReferenceBpm(taps, manual);
     setStep1Time(player.state.time);
     setStep(2);
-    setPulses([]);
     preview(alignment);
     setConfirmWeak(false);
   }
@@ -143,7 +162,6 @@ export function AlignmentWorkspace({
   function back() {
     player.stop();
     setStep(1);
-    setPulses([]);
   }
 
   function togglePlay() {
@@ -151,7 +169,6 @@ export function AlignmentWorkspace({
     else if (state.phase === 'paused') void player.resume();
     else if (state.phase !== 'loading') {
       setTaps([]);
-      setPulses([]);
       void player.play(buffer, rawPlan, 0, 'alignment');
     }
   }
@@ -169,12 +186,11 @@ export function AlignmentWorkspace({
     setTaps((previous) =>
       !previous.length || time > previous.at(-1)! ? [...previous, time] : previous,
     );
-    pulse();
+    ripple();
   }
 
   function seek(time: number) {
     setTaps([]);
-    setPulses([]);
     if (state.phase === 'stopped') void player.play(buffer, rawPlan, time);
     else void player.seek(time);
   }
@@ -276,15 +292,14 @@ export function AlignmentWorkspace({
                   />
                 </div>
               </div>
-              <div className="tap-stage" aria-hidden="true">
-                {step1Active &&
-                  pulses.map((id) => (
-                    <span className="tap-wave" key={id}>
-                      <span className="tap-wave-line left" />
-                      <span className="tap-wave-line right" />
-                      <span className="tap-wave-core" />
-                    </span>
-                  ))}
+              <div className="tap-stage" aria-hidden="true" ref={tapStage}>
+                {Array.from({ length: RIPPLE_SLOTS }, (_, index) => (
+                  <span className="tap-wave" key={index}>
+                    <span className="tap-wave-line left" />
+                    <span className="tap-wave-line right" />
+                  </span>
+                ))}
+                <span className="tap-core" />
                 <span className="tap-stage-axis" />
               </div>
               <div className="tap-statistics">
@@ -333,7 +348,6 @@ export function AlignmentWorkspace({
                   disabled={!taps.length}
                   onClick={() => {
                     setTaps([]);
-                    setPulses([]);
                   }}
                 >
                   清空本轮打拍
