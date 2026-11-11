@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 import { installAudioOutput } from './audio-device';
 
 function wav(seconds = 12, channels = 1) {
@@ -88,25 +88,40 @@ test('同步播放器暂停、继续、跳转、曲尾及纯节拍器互斥', as
   await expect(page.locator('.status')).toHaveText('就绪');
 });
 
-test('打拍 Space 隔离、撤销、跳转清空、精度确认、微调和取消重对齐', async ({ page }) => {
+test('打拍 Space 隔离、撤销、跳转清空、两步单界面、微调和取消重对齐', async ({ page }) => {
   await attach(page);
   await page.getByRole('button', { name: '对齐', exact: true }).click();
   const workspace = page.getByRole('dialog', { name: '音频对齐', exact: true });
+  const steps = workspace.locator('.workbench-step');
+  await expect(steps.nth(1)).toHaveAttribute('inert', '');
+  await expect(workspace.getByRole('button', { name: '确定', exact: true })).toBeDisabled();
   await workspace.getByRole('button', { name: '播放音频', exact: true }).click();
+  await expect(workspace.locator('.workbench-status').first()).toHaveText('正在播放');
   for (let i = 0; i < 4; i++) {
     await page.waitForTimeout(150);
     await page.keyboard.press('Space');
   }
-  await expect(workspace).toContainText('打拍 4 次');
+  await expect(workspace.getByTestId('tap-count')).toHaveText('4');
+  await expectTapPulse(workspace);
   await workspace.getByRole('button', { name: '撤销上一拍' }).click();
-  await expect(workspace).toContainText('打拍 3 次');
+  await expect(workspace.getByTestId('tap-count')).toHaveText('3');
   await workspace.getByRole('button', { name: '下一步' }).click();
   await page.getByRole('button', { name: '仍然继续' }).click();
-  await expect(workspace).toContainText('2. 首拍位置与时间微调');
+  await expect(steps.nth(0)).toHaveAttribute('inert', '');
+  await expect(steps.nth(1)).not.toHaveAttribute('inert', '');
+  await expect(workspace.getByRole('button', { name: '确定', exact: true })).toBeEnabled();
+  await expect(workspace.getByRole('button', { name: '返回上一步' })).toBeVisible();
+  await expect(workspace.getByRole('button', { name: '停止试听', exact: true })).toBeVisible();
+  await workspace.getByRole('button', { name: '返回上一步' }).click();
+  await expect(steps.nth(0)).not.toHaveAttribute('inert', '');
+  await expect(steps.nth(1)).toHaveAttribute('inert', '');
+  await expect(workspace.getByRole('button', { name: '确定', exact: true })).toBeDisabled();
+  await workspace.getByRole('button', { name: '下一步' }).click();
+  await page.getByRole('button', { name: '仍然继续' }).click();
   await workspace.screenshot({ path: test.info().outputPath('alignment.png') });
   await workspace.getByRole('button', { name: '+1 ms', exact: true }).click();
   await workspace.getByRole('button', { name: '停止试听', exact: true }).click();
-  await workspace.getByRole('button', { name: '确认完成' }).click();
+  await workspace.getByRole('button', { name: '确定', exact: true }).click();
   await expect(workspace).toHaveCount(0);
   await expect(page.getByLabel('曲目音频')).toContainText('已对齐');
   const before = await page.getByLabel('曲目音频').innerText();
@@ -114,12 +129,16 @@ test('打拍 Space 隔离、撤销、跳转清空、精度确认、微调和取�
   await workspace.getByRole('button', { name: '播放音频' }).click();
   await page.keyboard.press('Space');
   await slider(page, '打拍音频进度', 4);
-  await expect(workspace).toContainText('打拍 0 次');
+  await expect(workspace.getByTestId('tap-count')).toHaveText('0');
   await workspace.getByRole('button', { name: '取消', exact: true }).click();
   await expect(page.getByRole('dialog', { name: '取消本次对齐？', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '放弃本次修改' }).click();
   expect(await page.getByLabel('曲目音频').innerText()).toBe(before);
 });
+
+async function expectTapPulse(workspace: Locator) {
+  await expect(workspace.locator('.tap-wave').first()).toBeVisible();
+}
 
 test('WAV 和 MP3 合成、实际解码的时间对齐、下载、过期结果与 MP3 重新导入', async ({ page }) => {
   await alignedSong(page);

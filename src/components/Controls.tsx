@@ -5,6 +5,12 @@ import { denominators } from '../model';
 export function Icon({ name }: { name: string }) {
   const paths: Record<string, ReactNode> = {
     play: <path d="m8 5 11 7-11 7Z" />,
+    pause: (
+      <>
+        <rect x="7" y="5" width="3.5" height="14" rx="1" />
+        <rect x="13.5" y="5" width="3.5" height="14" rx="1" />
+      </>
+    ),
     stop: <rect x="6" y="6" width="12" height="12" rx="1" />,
     plus: <path d="M12 5v14M5 12h14" />,
     save: (
@@ -74,7 +80,7 @@ export function Icon({ name }: { name: string }) {
       width="16"
       height="16"
       viewBox="0 0 24 24"
-      fill={name === 'play' || name === 'stop' ? 'currentColor' : 'none'}
+      fill={name === 'play' || name === 'pause' || name === 'stop' ? 'currentColor' : 'none'}
       stroke="currentColor"
       strokeWidth="1.6"
       strokeLinecap="round"
