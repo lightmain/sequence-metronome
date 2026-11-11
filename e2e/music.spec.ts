@@ -137,8 +137,24 @@ test('打拍 Space 隔离、撤销、跳转清空、两步单界面、微调和�
 });
 
 async function expectTapPulse(workspace: Locator) {
-  await expect(workspace.locator('.tap-wave').first()).toBeVisible();
+  const line = workspace.locator('.tap-wave-line').first();
+  await expect(line).toBeVisible();
+  await expect(line).toHaveCSS('display', 'block');
 }
+
+test('减少动态偏好下打拍仍显示扩散竖线', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await attach(page);
+  await page.getByRole('button', { name: '对齐', exact: true }).click();
+  const workspace = page.getByRole('dialog', { name: '音频对齐', exact: true });
+  await workspace.getByRole('button', { name: '播放音频', exact: true }).click();
+  await expect(workspace.locator('.workbench-status').first()).toHaveText('正在播放');
+  await page.keyboard.press('Space');
+  const line = workspace.locator('.tap-wave-line').first();
+  await expect(line).toBeVisible();
+  await expect(line).toHaveCSS('display', 'block');
+  await expect(line).toHaveCSS('animation-duration', '0.55s');
+});
 
 test('WAV 和 MP3 合成、实际解码的时间对齐、下载、过期结果与 MP3 重新导入', async ({ page }) => {
   await alignedSong(page);

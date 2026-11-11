@@ -98,7 +98,7 @@ export function AlignmentWorkspace({
     const timer = window.setTimeout(() => {
       setPulses((previous) => previous.filter((value) => value !== id));
       pulseTimers.current.delete(timer);
-    }, 1200);
+    }, 1500);
     pulseTimers.current.add(timer);
   }
 
