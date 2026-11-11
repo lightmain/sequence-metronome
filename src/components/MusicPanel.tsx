@@ -4,7 +4,7 @@ import { clone, fingerprint } from '../model';
 import { MusicTimeline } from '../musicTimeline';
 import type { useMusic } from '../hooks/useMusic';
 import type { AudioEngine } from '../transport';
-import { NumberField, MeterFields } from './Controls';
+import { NumberField, MeterFields, Icon } from './Controls';
 import { synthesize } from '../synthesis';
 
 export function MusicPanel({
@@ -125,59 +125,239 @@ export function MusicPanel({
       error(String(e));
     }
   }
+  const reading = selecting || fileState === 'loading';
+  const audioState = reading
+    ? '正在读取音频'
+    : fileState === 'missing'
+      ? '音频文件缺失'
+      : parameters.alignment
+        ? '已对齐'
+        : '未对齐';
+  const audioStateClass = reading
+    ? 'loading'
+    : fileState === 'missing'
+      ? 'missing'
+      : parameters.alignment
+        ? 'aligned'
+        : 'unaligned';
+  const audioVolume = Math.round((parameters.volume ?? 0.65) * 100);
+  const transportStatus =
+    state.phase === 'playing'
+      ? '正在播放音乐'
+      : state.phase === 'paused'
+        ? '音乐已暂停'
+        : state.phase === 'loading'
+          ? '正在加载音频'
+          : '未播放';
+  const playLabel =
+    state.phase === 'playing'
+      ? '暂停音乐'
+      : state.phase === 'paused'
+        ? '继续音乐'
+        : state.phase === 'loading'
+          ? '正在加载音频'
+          : '播放音乐';
   return (
     <section className="music-panel" aria-label="曲目音频">
-      <div className="music-actions">
-        <button
-          disabled={selecting || locked}
-          onClick={() => {
-            replacing.current = false;
-            input.current?.click();
-          }}
-        >
-          {parameters.audio ? '关联原音频' : '关联音频'}
-        </button>
-        {parameters.audio && (
+      <header className="music-panel-heading">
+        <div className="music-panel-title">
+          <h3>原音频</h3>
+          <span className={`audio-state ${audioStateClass}`} role="status" aria-live="polite">
+            <span className="audio-state-dot" />
+            {audioState}
+          </span>
+          <span className="audio-name">{parameters.audio?.name ?? '未关联音频'}</span>
+          {parameters.alignment && (
+            <span className="alignment-summary">
+              参考 BPM {parameters.alignment.referenceBpm ?? '—'} · 首拍{' '}
+              {Number(parameters.alignment.firstBeatMs.toFixed(1))} ms
+            </span>
+          )}
+        </div>
+        <div className="music-file-actions">
           <button
+            className={parameters.audio ? '' : 'music-accent'}
             disabled={selecting || locked}
             onClick={() => {
-              replacing.current = true;
+              replacing.current = false;
               input.current?.click();
             }}
           >
-            替换音频
+            {parameters.audio ? '关联原音频' : '关联音频'}
           </button>
-        )}
-        <span className="audio-name">{parameters.audio?.name ?? '未关联音频'}</span>
-        <span>
-          {selecting || fileState === 'loading'
-            ? '正在读取音频'
-            : fileState === 'missing'
-              ? '音频文件缺失'
-              : parameters.alignment
-                ? '已对齐'
-                : '未对齐'}
-        </span>
-        <button disabled={!buffer || selecting || locked} onClick={align}>
-          {parameters.alignment ? '重新对齐' : '对齐'}
+          {parameters.audio && (
+            <button
+              disabled={selecting || locked}
+              onClick={() => {
+                replacing.current = true;
+                input.current?.click();
+              }}
+            >
+              替换音频
+            </button>
+          )}
+          <button className="music-align" disabled={!buffer || selecting || locked} onClick={align}>
+            {parameters.alignment ? '重新对齐' : '对齐'}
+          </button>
+        </div>
+      </header>
+      <div className="music-player">
+        <button
+          className={`round-button ${state.phase === 'playing' ? 'pause' : 'play'}`}
+          aria-label={playLabel}
+          disabled={!buffer || selecting || state.phase === 'loading'}
+          onClick={() => {
+            if (state.phase === 'playing') player.pause();
+            else if (state.phase === 'paused') void player.resume();
+            else if (buffer) {
+              begin();
+              player.setVolumes(parameters.volume ?? 0.65, volume / 100);
+              void player.play(buffer, timeline);
+            }
+          }}
+        >
+          <Icon name={state.phase === 'playing' ? 'pause' : 'play'} />
         </button>
-        {parameters.alignment && (
-          <span>
-            参考 BPM {parameters.alignment.referenceBpm ?? '—'} · 首拍{' '}
-            {parameters.alignment.firstBeatMs} ms
-          </span>
-        )}
+        <button
+          className="round-button stop music-stop"
+          aria-label="停止音乐"
+          disabled={state.phase === 'stopped'}
+          onClick={() => player.stop()}
+        >
+          <Icon name="stop" />
+        </button>
+        <div className="music-progress">
+          <div className="music-progress-labels">
+            <span className="music-status">
+              <span className={`music-status-dot ${state.phase === 'playing' ? 'running' : ''}`} />
+              {transportStatus}
+            </span>
+            <span className="music-time">
+              {state.time.toFixed(1)} / {timeline.duration.toFixed(1)} s
+            </span>
+          </div>
+          <input
+            aria-label="音乐进度"
+            type="range"
+            min={0}
+            max={timeline.duration || 1}
+            step="0.001"
+            disabled={!buffer || state.phase === 'loading'}
+            value={state.time}
+            onChange={(e) => {
+              if (!buffer) return;
+              const time = +e.target.value;
+              if (state.phase === 'stopped') {
+                begin();
+                player.setVolumes(parameters.volume ?? 0.65, volume / 100);
+                void player.play(buffer, timeline, time);
+              } else void player.seek(time);
+            }}
+          />
+        </div>
         <label className="music-volume">
-          音频音量
+          <span>音频音量</span>
           <input
             aria-label="音频音量"
             type="range"
             min={0}
             max={100}
-            value={Math.round((parameters.volume ?? 0.65) * 100)}
+            value={audioVolume}
             onChange={(e) => change({ ...parameters, volume: +e.target.value / 100 })}
           />
+          <span className="volume-value">{audioVolume}%</span>
         </label>
+      </div>
+      <div className="music-settings">
+        <div className="setting-group">
+          <span className="setting-title">预备节拍</span>
+          <div className="setting-fields">
+            <label>
+              小节{' '}
+              <NumberField
+                label="预备小节数"
+                integer
+                min={0}
+                value={timeline.countIn.bars}
+                disabled={locked}
+                onCommit={(bars) =>
+                  change({ ...parameters, countIn: { ...timeline.countIn, bars } })
+                }
+              />
+            </label>
+            <label>
+              拍号{' '}
+              <MeterFields
+                label="预备节拍"
+                disabled={locked}
+                meter={timeline.countIn.meter}
+                onChange={(meter) =>
+                  change({ ...parameters, countIn: { ...timeline.countIn, meter } })
+                }
+              />
+            </label>
+            <label>
+              ♩ ={' '}
+              <NumberField
+                label="预备节拍 BPM"
+                min={20}
+                max={400}
+                disabled={locked}
+                value={timeline.countIn.bpm}
+                onCommit={(bpm) => change({ ...parameters, countIn: { ...timeline.countIn, bpm } })}
+              />
+            </label>
+          </div>
+        </div>
+        <div className="setting-group synth-group">
+          <span className="setting-title">合成</span>
+          <div className="setting-fields">
+            <label>
+              格式{' '}
+              <select
+                aria-label="合成格式"
+                value={format}
+                onChange={(e) => setFormat(e.target.value as 'wav' | 'mp3')}
+              >
+                <option value="wav">WAV</option>
+                <option value="mp3">MP3</option>
+              </select>
+            </label>
+            <button
+              disabled={!buffer || !parameters.alignment || generating || selecting}
+              onClick={() => void generate()}
+            >
+              生成合成音频
+            </button>
+            {generating && (
+              <button
+                onClick={() => {
+                  task.current?.abort();
+                  setGenerating(false);
+                }}
+              >
+                取消生成
+              </button>
+            )}
+            <button disabled={!validResult} onClick={() => void preview()}>
+              试听合成结果
+            </button>
+            <button
+              disabled={!validResult}
+              onClick={() => {
+                if (!validResult) return;
+                const url = URL.createObjectURL(validResult.blob),
+                  anchor = document.createElement('a');
+                anchor.href = url;
+                anchor.download = `${song.title.replace(/[<>:"/\\|?*]/g, '_')}.${format}`;
+                anchor.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+              }}
+            >
+              下载合成音频
+            </button>
+          </div>
+        </div>
       </div>
       <input
         ref={input}
@@ -190,128 +370,6 @@ export function MusicPanel({
           e.currentTarget.value = '';
         }}
       />
-      <div className="music-transport">
-        <button
-          disabled={!buffer || selecting || state.phase === 'loading'}
-          onClick={() => {
-            if (state.phase === 'playing') player.pause();
-            else if (state.phase === 'paused') void player.resume();
-            else if (buffer) {
-              begin();
-              player.setVolumes(parameters.volume ?? 0.65, volume / 100);
-              void player.play(buffer, timeline);
-            }
-          }}
-        >
-          {state.phase === 'playing'
-            ? '暂停音乐'
-            : state.phase === 'paused'
-              ? '继续音乐'
-              : '播放音乐'}{' '}
-          <kbd>Space</kbd>
-        </button>
-        <button disabled={state.phase === 'stopped'} onClick={() => player.stop()}>
-          停止音乐 <kbd>⌫</kbd>
-        </button>
-        <input
-          aria-label="音乐进度"
-          type="range"
-          min={0}
-          max={timeline.duration || 1}
-          step="0.001"
-          disabled={!buffer || state.phase === 'loading'}
-          value={state.time}
-          onChange={(e) => {
-            if (!buffer) return;
-            const time = +e.target.value;
-            if (state.phase === 'stopped') {
-              begin();
-              player.setVolumes(parameters.volume ?? 0.65, volume / 100);
-              void player.play(buffer, timeline, time);
-            } else void player.seek(time);
-          }}
-        />
-        <span>
-          {state.time.toFixed(1)} / {timeline.duration.toFixed(1)} s
-        </span>
-      </div>
-      <div className="music-actions">
-        <label>
-          预备小节数{' '}
-          <NumberField
-            label="预备小节数"
-            integer
-            min={0}
-            value={timeline.countIn.bars}
-            disabled={locked}
-            onCommit={(bars) => change({ ...parameters, countIn: { ...timeline.countIn, bars } })}
-          />
-        </label>
-        <label>
-          拍号{' '}
-          <MeterFields
-            label="预备节拍"
-            disabled={locked}
-            meter={timeline.countIn.meter}
-            onChange={(meter) => change({ ...parameters, countIn: { ...timeline.countIn, meter } })}
-          />
-        </label>
-        <label>
-          BPM{' '}
-          <NumberField
-            label="预备节拍 BPM"
-            min={20}
-            max={400}
-            disabled={locked}
-            value={timeline.countIn.bpm}
-            onCommit={(bpm) => change({ ...parameters, countIn: { ...timeline.countIn, bpm } })}
-          />
-        </label>
-        <label>
-          合成格式{' '}
-          <select
-            aria-label="合成格式"
-            value={format}
-            onChange={(e) => setFormat(e.target.value as 'wav' | 'mp3')}
-          >
-            <option value="wav">WAV</option>
-            <option value="mp3">MP3</option>
-          </select>
-        </label>
-        <button
-          disabled={!buffer || !parameters.alignment || generating || selecting}
-          onClick={() => void generate()}
-        >
-          生成合成音频
-        </button>
-        {generating && (
-          <button
-            onClick={() => {
-              task.current?.abort();
-              setGenerating(false);
-            }}
-          >
-            取消生成
-          </button>
-        )}
-        <button disabled={!validResult} onClick={() => void preview()}>
-          试听合成结果
-        </button>
-        <button
-          disabled={!validResult}
-          onClick={() => {
-            if (!validResult) return;
-            const url = URL.createObjectURL(validResult.blob),
-              anchor = document.createElement('a');
-            anchor.href = url;
-            anchor.download = `${song.title.replace(/[<>:"/\\|?*]/g, '_')}.${format}`;
-            anchor.click();
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
-          }}
-        >
-          下载合成音频
-        </button>
-      </div>
     </section>
   );
 }
