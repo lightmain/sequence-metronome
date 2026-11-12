@@ -107,6 +107,11 @@ test('设备延迟检测展开、打拍、应用、持久化和清除', async ({
     .toBeGreaterThanOrEqual(8);
   await panel.getByRole('button', { name: '停止检测节拍' }).click();
   await expect(panel.getByTestId('device-delay-status')).not.toHaveText('检测中');
+  await expect(panel.getByRole('button', { name: '重新开始检测' })).toBeVisible();
+  const count = await panel.getByTestId('device-delay-count').innerText();
+  await page.keyboard.press('Space');
+  await expect(panel.getByTestId('device-delay-count')).toHaveText(count);
+  await expect(panel.getByRole('button', { name: '重新开始检测' })).toBeVisible();
 
   await panel.getByRole('button', { name: '应用', exact: true }).click();
   const weak = page.getByRole('dialog', { name: '精度不足，仍然应用？', exact: true });
@@ -141,6 +146,28 @@ test('设备延迟检测展开、打拍、应用、持久化和清除', async ({
   expect(await page.evaluate(() => localStorage.getItem('metronome.device.v1'))).toBeNull();
   await reopened.getByRole('button', { name: '收起', exact: true }).click();
   await expect(reopened.getByRole('button', { name: /设备延迟检测/ })).toContainText('未检测');
+});
+
+test('检测结束后只能用鼠标点击回旋按钮重新开始', async ({ page }) => {
+  await installAudioOutput(page);
+  await page.goto('./');
+  await attach(page);
+  const workspace = await openWorkspace(page);
+  await workspace.getByRole('button', { name: /设备延迟检测/ }).click();
+  const panel = workspace.locator('#device-delay-panel');
+  await panel.getByRole('button', { name: '播放检测节拍' }).click();
+  await expect(panel.getByRole('button', { name: '停止检测节拍' })).toBeVisible();
+  await page.waitForTimeout(700);
+  await panel.getByRole('button', { name: '停止检测节拍' }).click();
+  await expect(panel.getByRole('button', { name: '重新开始检测' })).toBeVisible();
+  await page.keyboard.press('Space');
+  await expect(panel.getByRole('button', { name: '重新开始检测' })).toBeVisible();
+  await panel.getByRole('button', { name: '重新开始检测' }).click();
+  await expect(panel.getByRole('button', { name: '停止检测节拍' })).toBeVisible();
+  await expect(panel.getByTestId('device-delay-count')).toHaveText('0');
+  await page.keyboard.press('Space');
+  await expect(panel.getByRole('button', { name: '停止检测节拍' })).toBeVisible();
+  await panel.getByRole('button', { name: '停止检测节拍' }).click();
 });
 
 test('第二步禁用入口，返回第一步后恢复', async ({ page }) => {
