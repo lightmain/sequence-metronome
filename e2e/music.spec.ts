@@ -197,7 +197,6 @@ test('对齐完成写入当前 SHA、预备节拍和第一段 BPM，取消保留
   await expect(page.getByRole('dialog', { name: '精度不足，仍然继续？' })).toBeVisible();
   await page.getByRole('button', { name: '仍然继续' }).click();
   await workspace.getByRole('button', { name: '+1 ms', exact: true }).click();
-  await workspace.getByRole('button', { name: '停止试听', exact: true }).click();
   await workspace.getByRole('button', { name: '确定', exact: true }).click();
   await expect(workspace).toHaveCount(0);
   await expect(state(page)).toHaveText('已对齐');

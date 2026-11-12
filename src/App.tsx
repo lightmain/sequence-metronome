@@ -205,8 +205,8 @@ export default function App() {
     clearTimeout(noticeTimer.current);
     noticeTimer.current = setTimeout(() => setNotice(''), 2500);
   });
-  const updateSong = useEvent(function updateSong(change: (song: Song) => Song) {
-    if (sequenceLocked) return;
+  const updateSong = useEvent(function updateSong(change: (song: Song) => Song, force = false) {
+    if (sequenceLocked && !force) return;
     try {
       setAll(
         tabsRef.current.map((t) =>
@@ -277,7 +277,7 @@ export default function App() {
       const first = sections(s)[0];
       if (first) first.bpm = core.referenceBpm;
       return validate(s);
-    });
+    }, true);
     setAligning(false);
   });
   const modifyRow = useEvent(function modifyRow(
