@@ -13,8 +13,18 @@ export async function installAudioOutput(page: Page) {
       destination = {};
       outputLatency = 0;
       origin = performance.now();
+      starts: number[] = [];
+      constructor() {
+        (window as unknown as { __testAudio: unknown }).__testAudio = {
+          origin: this.origin,
+          starts: this.starts,
+        };
+      }
       get currentTime() {
         return (performance.now() - this.origin) / 1000;
+      }
+      getOutputTimestamp() {
+        return { contextTime: this.currentTime, performanceTime: performance.now() };
       }
       async resume() {
         this.state = 'running';
@@ -30,6 +40,7 @@ export async function installAudioOutput(page: Page) {
       }
       createBufferSource() {
         const currentTime = () => this.currentTime;
+        const starts = this.starts;
         let timer: ReturnType<typeof setTimeout> | undefined;
         return {
           buffer: null as AudioBuffer | null,
@@ -38,6 +49,7 @@ export async function installAudioOutput(page: Page) {
           connect() {},
           disconnect() {},
           start(time: number) {
+            starts.push(time);
             timer = setTimeout(
               () => this.onended?.(),
               Math.max(0, time - currentTime()) * 1000 + 100,

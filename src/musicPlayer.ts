@@ -1,4 +1,5 @@
 import type { AudioEngine, Position, BeatEvent } from './transport';
+import { audibleContextTime } from './audioTime';
 
 export type PlayPlan = {
   uniform?: boolean;
@@ -48,18 +49,13 @@ export class MusicPlayer {
     this.musicGain?.gain.setTargetAtTime(music, now, 0.01);
     this.beatGain?.gain.setTargetAtTime(beat, now, 0.01);
   }
-  audibleTime() {
+  audibleTime(at = performance.now()) {
     const context = this.engine.context;
     if (!context || this.state.phase !== 'playing') return this.state.time;
-    const stamp = context.getOutputTimestamp?.();
-    const audible =
-      stamp?.performanceTime && stamp.contextTime !== undefined
-        ? Math.min(
-            context.currentTime,
-            stamp.contextTime + (performance.now() - stamp.performanceTime) / 1000,
-          )
-        : context.currentTime - (context.outputLatency || 0);
-    return Math.max(this.startTime, Math.min(this.plan!.duration, audible - this.origin));
+    return Math.max(
+      this.startTime,
+      Math.min(this.plan!.duration, audibleContextTime(context, at) - this.origin),
+    );
   }
   async play(
     buffer: AudioBuffer,

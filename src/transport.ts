@@ -1,5 +1,6 @@
 import { beatSeconds, sections } from './model';
 import type { Meter, Section, Song } from './model';
+import { audibleContextTime } from './audioTime';
 export type Phase = 'stopped' | 'prepare' | 'countdown' | 'playing' | 'simple';
 export type Position = {
   phase: Phase;
@@ -320,17 +321,7 @@ export class AudioEngine {
     const context = this.context,
       timeline = this.timeline;
     if (!context || !timeline) return;
-    const stamp = context.getOutputTimestamp?.();
-    const audibleTime =
-      stamp &&
-      stamp.performanceTime !== undefined &&
-      stamp.contextTime !== undefined &&
-      stamp.performanceTime > 0
-        ? Math.min(
-            context.currentTime,
-            stamp.contextTime + (performance.now() - stamp.performanceTime) / 1000,
-          )
-        : context.currentTime - (context.outputLatency || 0);
+    const audibleTime = audibleContextTime(context);
     let latest: BeatEvent | undefined;
     while (this.events[0] && this.events[0].time <= audibleTime) latest = this.events.shift();
     if (latest) this.onPosition((this.lastPosition = latest));

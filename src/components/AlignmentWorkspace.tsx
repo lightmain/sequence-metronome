@@ -1,8 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AlignmentCore } from '../model';
 import type { MusicPlayer, MusicState, PlayPlan } from '../musicPlayer';
+import type { AudioEngine } from '../transport';
 import { regressTaps, lockReferenceBpm } from '../alignment';
+import { applyDeviceDelay, formatDelayMs } from '../deviceDelay';
+import type { DelaySummary } from '../deviceDelay';
+import {
+  createDeviceDelay,
+  clearDeviceDelay,
+  readDeviceDelay,
+  writeDeviceDelay,
+} from '../deviceDelayStorage';
+import type { DeviceDelay } from '../deviceDelayStorage';
+import { tapEventTime } from '../audioTime';
 import { formatAudioTime } from '../time';
+import { DeviceDelayPanel } from './DeviceDelayPanel';
 import { Dialog } from './Dialog';
 import { Icon, NumberField } from './Controls';
 
@@ -18,20 +30,32 @@ const RIPPLE_DURATION = 1350;
 const RIPPLE_REDUCED_TRAVEL = 64;
 const RIPPLE_REDUCED_DURATION = 550;
 
+function loadStoredDelay(): DeviceDelay | undefined {
+  try {
+    return readDeviceDelay(localStorage);
+  } catch {
+    return undefined;
+  }
+}
+
 export function AlignmentWorkspace({
   buffer,
   player,
+  engine,
   state,
   initial,
   finish,
   close,
+  error,
 }: {
   buffer: AudioBuffer;
   player: MusicPlayer;
+  engine: AudioEngine;
   state: MusicState;
   initial?: AlignmentCore;
   finish: (alignment: AlignmentCore) => void;
   close: () => void;
+  error: (text: string) => void;
 }) {
   const [step, setStep] = useState(1);
   const [taps, setTaps] = useState<number[]>([]);
@@ -42,17 +66,22 @@ export function AlignmentWorkspace({
   const [step1Time, setStep1Time] = useState(0);
   const [confirmClose, setConfirmClose] = useState(false);
   const [confirmWeak, setConfirmWeak] = useState(false);
+  const [delayOpen, setDelayOpen] = useState(false);
+  const [storedDelay, setStoredDelay] = useState<DeviceDelay | undefined>(loadStoredDelay);
+  const [pendingDelay, setPendingDelay] = useState<DelaySummary>();
   const statistics = useMemo(() => (taps.length >= 3 ? regressTaps(taps) : undefined), [taps]);
   const intervalWidth = statistics?.bpmInterval
     ? statistics.bpmInterval[1] - statistics.bpmInterval[0]
     : undefined;
   const step1Play = useRef<HTMLButtonElement>(null);
   const step2Play = useRef<HTMLButtonElement>(null);
+  const delayButton = useRef<HTMLButtonElement>(null);
   const tapStage = useRef<HTMLDivElement>(null);
   const waveSlot = useRef(0);
   const previousStep = useRef(step);
-  const step1Active = step === 1;
-  const step2Active = step === 2;
+  const previousDelayOpen = useRef(delayOpen);
+  const step1Active = step === 1 && !delayOpen;
+  const step2Active = step === 2 && !delayOpen;
   const step1Playing = step1Active && state.phase === 'playing';
   const step2Playing = step2Active && state.phase === 'playing';
   const previewing = step2Active && state.phase !== 'stopped';
@@ -94,6 +123,11 @@ export function AlignmentWorkspace({
     previousStep.current = step;
     (step === 1 ? step1Play.current : step2Play.current)?.focus();
   }, [step]);
+
+  useEffect(() => {
+    if (previousDelayOpen.current && !delayOpen) delayButton.current?.focus();
+    previousDelayOpen.current = delayOpen;
+  }, [delayOpen]);
 
   function ripple() {
     const stage = tapStage.current;
@@ -158,7 +192,7 @@ export function AlignmentWorkspace({
   }
 
   function next() {
-    const alignment = lockReferenceBpm(taps, manual);
+    const alignment = applyDeviceDelay(lockReferenceBpm(taps, manual), storedDelay?.delayMs ?? 0);
     setStep1Time(player.state.time);
     setStep(2);
     preview(alignment);
@@ -192,13 +226,52 @@ export function AlignmentWorkspace({
     else preview(draft);
   }
 
-  function tap() {
+  function tap(at = performance.now()) {
     if (step !== 1 || player.state.phase !== 'playing') return;
-    const time = player.audibleTime();
+    const time = player.audibleTime(at);
     setTaps((previous) =>
       !previous.length || time > previous.at(-1)! ? [...previous, time] : previous,
     );
     ripple();
+  }
+
+  function openDelay() {
+    if (step !== 1) return;
+    player.stop();
+    setDelayOpen(true);
+  }
+
+  function applyDelay(summary: DelaySummary) {
+    let record: DeviceDelay;
+    try {
+      record = createDeviceDelay(summary);
+    } catch (cause) {
+      error(cause instanceof Error ? cause.message : String(cause));
+      return;
+    }
+    try {
+      writeDeviceDelay(localStorage, record);
+    } catch {
+      error('设备延迟未能保存到浏览器，本次对齐仍将使用该值。');
+    }
+    setStoredDelay(record);
+    setPendingDelay(undefined);
+    setDelayOpen(false);
+  }
+
+  function requestDelay(summary: DelaySummary) {
+    if (summary.status === 'weak') setPendingDelay(summary);
+    else if (summary.status === 'ready') applyDelay(summary);
+  }
+
+  function clearDelay() {
+    try {
+      clearDeviceDelay(localStorage);
+    } catch {
+      error('设备延迟未能从浏览器清除。');
+      return;
+    }
+    setStoredDelay(undefined);
   }
 
   function seek(time: number) {
@@ -214,6 +287,14 @@ export function AlignmentWorkspace({
         className="alignment-workspace"
         close={() => setConfirmClose(true)}
         onKeyDown={(e) => {
+          if (delayOpen) {
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              e.stopPropagation();
+              setDelayOpen(false);
+            }
+            return;
+          }
           if (e.nativeEvent.isComposing || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
           if (
             (e.target as HTMLElement).closest(
@@ -224,7 +305,7 @@ export function AlignmentWorkspace({
           if (e.key === ' ' && step === 1) {
             e.preventDefault();
             e.stopPropagation();
-            tap();
+            tap(tapEventTime(e.timeStamp));
           } else if (e.key === 'Enter' && step === 1 && statistics) {
             e.preventDefault();
             e.stopPropagation();
@@ -250,6 +331,33 @@ export function AlignmentWorkspace({
       >
         <div className="alignment-content">
           <div className="workbench-steps">
+            {delayOpen ? (
+              <DeviceDelayPanel
+                engine={engine}
+                stored={storedDelay}
+                onApply={requestDelay}
+                onClear={clearDelay}
+                onCollapse={() => setDelayOpen(false)}
+                error={error}
+              />
+            ) : (
+              <button
+                ref={delayButton}
+                className="device-delay-entry"
+                aria-label={`设备延迟检测，${
+                  storedDelay ? `${formatDelayMs(storedDelay.delayMs)} 毫秒` : '未检测'
+                }`}
+                aria-controls="device-delay-panel"
+                aria-expanded={false}
+                disabled={step !== 1}
+                onClick={openDelay}
+              >
+                设备延迟检测
+                <strong>
+                  {storedDelay ? `${formatDelayMs(storedDelay.delayMs)} ms` : '未检测'}
+                </strong>
+              </button>
+            )}
             <section
               className={`workbench-step ${step1Active ? 'active' : 'inactive'}`}
               inert={!step1Active}
@@ -362,7 +470,7 @@ export function AlignmentWorkspace({
                 <button
                   className="tap-action"
                   disabled={!step1Active || state.phase !== 'playing'}
-                  onClick={tap}
+                  onClick={(event) => tap(tapEventTime(event.timeStamp))}
                 >
                   打拍 <kbd>Space</kbd>
                 </button>
@@ -515,6 +623,20 @@ export function AlignmentWorkspace({
           }
         >
           <p>打拍次数、时间跨度或 BPM 区间尚未达到建议条件。</p>
+        </Dialog>
+      )}
+      {pendingDelay && (
+        <Dialog
+          title="精度不足，仍然应用？"
+          close={() => setPendingDelay(undefined)}
+          footer={
+            <>
+              <button onClick={() => setPendingDelay(undefined)}>继续检测</button>
+              <button onClick={() => applyDelay(pendingDelay)}>仍然应用</button>
+            </>
+          }
+        >
+          <p>打拍次数或延迟区间尚未达到建议条件。</p>
         </Dialog>
       )}
     </>
