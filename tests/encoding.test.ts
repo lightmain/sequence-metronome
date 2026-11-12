@@ -16,6 +16,30 @@ describe('音频文件编码', () => {
     expect(view.getInt16(46, true)).toBe(32767);
     expect(view.getInt16(50, true)).toBe(16384);
   });
+  it('编码进度单调递增并最终完成', () => {
+    const wavProgress: number[] = [];
+    encodeWav([new Float32Array([-1, 0, 1])], 44100, (value) => wavProgress.push(value));
+    expect(wavProgress.length).toBeGreaterThan(0);
+    expect(wavProgress.at(-1)).toBe(1);
+    expect(
+      wavProgress.every(
+        (value, index) =>
+          value >= 0 && value <= 1 && (index === 0 || value >= wavProgress[index - 1]),
+      ),
+    ).toBe(true);
+
+    const channels = [Float32Array.from({ length: 44100 }, () => 0.1)];
+    const mp3Progress: number[] = [];
+    encodeMp3(channels, 44100, (value) => mp3Progress.push(value));
+    expect(mp3Progress.length).toBeGreaterThan(0);
+    expect(mp3Progress.at(-1)).toBe(1);
+    expect(
+      mp3Progress.every(
+        (value, index) =>
+          value >= 0 && value <= 1 && (index === 0 || value >= mp3Progress[index - 1]),
+      ),
+    ).toBe(true);
+  });
   it.each([1, 2])('MP3 %i 通道编码包含延迟和填充元数据', async (count) => {
     const channels = Array.from({ length: count }, () =>
       Float32Array.from(

@@ -1,6 +1,10 @@
 import { Mp3Encoder } from '@breezystack/lamejs';
 
-export function encodeWav(channels: Float32Array[], sampleRate: number) {
+export function encodeWav(
+  channels: Float32Array[],
+  sampleRate: number,
+  onProgress?: (value: number) => void,
+) {
   const frames = channels[0].length;
   const size = frames * channels.length * 2;
   if (size > 0xffffffff - 36) throw Error('WAV 文件超过格式支持的大小。');
@@ -21,9 +25,13 @@ export function encodeWav(channels: Float32Array[], sampleRate: number) {
   view.setUint16(34, 16, true);
   text(36, 'data');
   view.setUint32(40, size, true);
-  for (let i = 0; i < frames; i++)
+  const step = Math.max(1, Math.floor(frames / 100));
+  for (let i = 0; i < frames; i++) {
     for (let c = 0; c < channels.length; c++)
       view.setInt16(44 + (i * channels.length + c) * 2, pcm16(channels[c][i]), true);
+    if (i % step === 0) onProgress?.(i / frames);
+  }
+  onProgress?.(1);
   return new Blob([data], { type: 'audio/wav' });
 }
 function pcm16(value: number) {
@@ -31,18 +39,27 @@ function pcm16(value: number) {
 }
 
 /** 44.1 kHz MPEG-1，附加 Xing/LAME 延迟和尾部填充信息，供解码器恢复原时间范围。 */
-export function encodeMp3(channels: Float32Array[], sampleRate: number) {
+export function encodeMp3(
+  channels: Float32Array[],
+  sampleRate: number,
+  onProgress?: (value: number) => void,
+) {
   if (sampleRate !== 44100) throw Error('MP3 编码采样率须为 44100 Hz。');
   const encoder = new Mp3Encoder(channels.length, sampleRate, 192);
   const chunks: Uint8Array<ArrayBuffer>[] = [];
-  for (let offset = 0; offset < channels[0].length; offset += 1152) {
+  const total = Math.max(1, Math.ceil(channels[0].length / 1152));
+  const step = Math.max(1, Math.floor(total / 100));
+  let frame = 0;
+  for (let offset = 0; offset < channels[0].length; offset += 1152, frame++) {
     const converted = channels.map((c) =>
       Int16Array.from(c.subarray(offset, offset + 1152), pcm16),
     );
     const chunk = encoder.encodeBuffer(converted[0], converted[1]);
     if (chunk.length) chunks.push(new Uint8Array(chunk));
+    if (frame % step === 0) onProgress?.(frame / total);
   }
   chunks.push(new Uint8Array(encoder.flush()));
+  onProgress?.(1);
   const length = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
   const audio = new Uint8Array(length);
   let offset = 0;

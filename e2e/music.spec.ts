@@ -293,6 +293,17 @@ test('WAV 和 MP3 合成、实际解码、下载、过期结果与新增音频',
   await expect(page.getByRole('button', { name: '下载合成音频' })).toBeDisabled();
 });
 
+test('生成音频显示阶段进度并在完成后隐藏', async ({ page }) => {
+  await alignedSong(page, 120, 60);
+  await page.getByLabel('合成格式', { exact: true }).selectOption('mp3');
+  await page.getByRole('button', { name: '生成合成音频' }).click();
+  const progress = page.getByRole('progressbar', { name: '生成音频进度' });
+  await expect(progress).toBeVisible();
+  await expect(progress).toHaveAttribute('aria-valuetext', /正在/);
+  await expect(page.getByRole('button', { name: '下载合成音频' })).toBeEnabled({ timeout: 30000 });
+  await expect(progress).toHaveCount(0);
+});
+
 test('音频数据库写入中断时曲目参数不保存，星号和文件仍可重试', async ({ page }) => {
   await attach(page, 2);
   await page.evaluate(() => {
