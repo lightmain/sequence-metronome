@@ -8,6 +8,8 @@
 
 V5 已完成（2026-11-13）：音频内容 SHA 绑定、多音频关联、按 SHA 保存对齐参数，以及对齐完成后的 BPM 写回。本地自动测试通过；音频输出使用模拟设备，实体声音未由自动测试覆盖，三分钟双声道规模实测为 V4 记录、V5 默认跳过未重跑，详见 [V5 计划](docs/plans/V5_PLAN.md)。已合并并推送 `main`；Pages 由现有 GitHub Actions 执行，本地未检查运行结果。当前状态、数据格式和待办集中在 [当前状态](docs/CURRENT_STATE.md)。
 
+V6 正在规划中（尚未实现）：在音频对齐工作台第一步上方增加“设备延迟检测”，检测值只保存在浏览器本地存储，用于修正第一步打拍的首拍换算。方案、统计、存储边界和待确认项见 [V6 计划](docs/plans/V6_PLAN.md)。
+
 TXT 的对齐行使用六个字段：
 
 ```text
@@ -171,7 +173,7 @@ pnpm.cmd preview
 - `.github/workflows/ci.yml`：跨平台检查及 Pages 发布。
 - `public/sounds/`：节拍音效及许可。
 - `examples/`：可直接导入的文本和 JSON 示例。
-- `docs/plans/`：V1–V5 开发计划与验收记录。
+- `docs/plans/`：V1–V5 开发计划与验收记录，以及 V6 规划。
 - `docs/CURRENT_STATE.md`：当前版本、数据格式、验证状态和已知限制。
 - `docs/THIRD_PARTY_NOTICES.md`：第三方组件与音效许可。
 
