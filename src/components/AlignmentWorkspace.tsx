@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Alignment } from '../model';
 import type { MusicPlayer, MusicState, PlayPlan } from '../musicPlayer';
 import { regressTaps, lockReferenceBpm } from '../alignment';
+import { formatAudioTime } from '../time';
 import { Dialog } from './Dialog';
 import { Icon, NumberField } from './Controls';
 
@@ -56,7 +57,7 @@ export function AlignmentWorkspace({
     : 0;
   const firstBeatText = Number(draft.firstBeatMs.toFixed(1));
   const step1Position = step1Active ? state.time : step1Time || taps.at(-1) || 0;
-  const step1TimeText = `${step1Position.toFixed(2)} / ${buffer.duration.toFixed(2)} s`;
+  const step1TimeText = formatAudioTime(step1Position, buffer.duration, 2);
   const step1Status =
     step === 2
       ? '已完成'
@@ -391,9 +392,7 @@ export function AlignmentWorkspace({
                       {step2Status}
                     </div>
                     <span className="time-readout">
-                      {step2Active
-                        ? `${state.time.toFixed(2)} / ${previewDuration.toFixed(2)} s`
-                        : '—'}
+                      {step2Active ? formatAudioTime(state.time, previewDuration, 2) : '—'}
                     </span>
                   </div>
                   <div className="preview-track" aria-hidden="true">

@@ -6,6 +6,7 @@ import type { useMusic } from '../hooks/useMusic';
 import type { AudioEngine } from '../transport';
 import { NumberField, MeterFields, Icon } from './Controls';
 import { synthesize } from '../synthesis';
+import { formatAudioTime } from '../time';
 
 export function MusicPanel({
   song,
@@ -232,9 +233,7 @@ export function MusicPanel({
               <span className={`music-status-dot ${state.phase === 'playing' ? 'running' : ''}`} />
               {transportStatus}
             </span>
-            <span className="music-time">
-              {state.time.toFixed(1)} / {timeline.duration.toFixed(1)} s
-            </span>
+            <span className="music-time">{formatAudioTime(state.time, timeline.duration, 1)}</span>
           </div>
           <input
             aria-label="音乐进度"

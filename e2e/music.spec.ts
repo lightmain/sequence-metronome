@@ -162,6 +162,24 @@ test('减少动态偏好下打拍仍显示扩散竖线', async ({ page }) => {
   expect(durations).toContain(550);
 });
 
+test('长音频时间显示为分:秒', async ({ page }) => {
+  await attach(page, 90);
+  await expect(page.locator('.music-time')).toHaveText('0:00 / 1:30');
+  await page.getByRole('button', { name: '对齐', exact: true }).click();
+  const workspace = page.getByRole('dialog', { name: '音频对齐', exact: true });
+  await workspace.getByRole('button', { name: '播放音频', exact: true }).click();
+  await expect(workspace.locator('.workbench-status').first()).toHaveText('正在播放');
+  for (let i = 0; i < 3; i++) {
+    await page.waitForTimeout(150);
+    await page.keyboard.press('Space');
+  }
+  await expect(workspace.locator('.time-readout').first()).toHaveText(/^\d+:\d{2} \/ 1:30$/);
+  await workspace.getByRole('button', { name: '下一步' }).click();
+  await page.getByRole('button', { name: '仍然继续' }).click();
+  await expect(workspace.getByRole('button', { name: '停止试听', exact: true })).toBeVisible();
+  await expect(workspace.locator('.time-readout').nth(1)).toHaveText(/^\d+:\d{2} \/ 1:30$/);
+});
+
 test('WAV 和 MP3 合成、实际解码的时间对齐、下载、过期结果与 MP3 重新导入', async ({ page }) => {
   await alignedSong(page);
   await slider(page, '音量', 0);
