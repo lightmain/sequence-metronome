@@ -1,6 +1,6 @@
 # 项目约定
 
-本文件适用于整个仓库。V1、V2、V3 均已完成；V2 需求和交互规则见 docs/plans/V2_PLAN.md，V3 实施与部署验收见 docs/plans/V3_PLAN.md。V4 主要功能已实现并完成 GitHub Actions 与 Pages 部署；V5 已完成音频 SHA-256 绑定、多音频关联和按 SHA 保存对齐映射，详见 docs/plans/V5_PLAN.md。V6 已实现设备延迟检测：检测值只保存到浏览器本地，只在第一步进入第二步时修正首拍一次，详见 docs/plans/V6_PLAN.md；实体设备延迟尚未人工验收。当前状态、数据格式、验证和已知限制见 docs/CURRENT_STATE.md；历史计划在 docs/plans/。音频输出由自动测试模拟，实体声音未由自动测试覆盖。开关文案为“列表滚动跟随播放”。后续新增的未确认交互细节不得直接当作已确认需求实现。
+本文件适用于整个仓库。V1、V2、V3 均已完成；V2 需求和交互规则见 docs/plans/V2_PLAN.md，V3 实施与部署验收见 docs/plans/V3_PLAN.md。V4 主要功能已实现并完成 GitHub Actions 与 Pages 部署；V5 已完成音频 SHA-256 绑定、多音频关联和按 SHA 保存对齐映射，详见 docs/plans/V5_PLAN.md。V6 已完成并合并本地 `main`：设备延迟检测值只保存到浏览器本地，只在第一步进入第二步时修正首拍一次，详见 docs/plans/V6_PLAN.md；实体设备延迟尚未人工验收。V7 处于规划阶段：ZIP 导出/导入见 docs/plans/V7_PLAN.md，确认前不实现。当前状态、数据格式、验证和已知限制见 docs/CURRENT_STATE.md；历史计划在 docs/plans/。音频输出由自动测试模拟，实体声音未由自动测试覆盖。开关文案为“列表滚动跟随播放”。后续新增的未确认交互细节不得直接当作已确认需求实现。
 
 ## 界面与文案
 
