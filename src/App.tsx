@@ -873,6 +873,7 @@ export default function App() {
         <AlignmentWorkspace
           buffer={music.buffer}
           player={music.player}
+          engine={engine}
           state={music.state}
           initial={
             currentAlignment
@@ -881,6 +882,7 @@ export default function App() {
           }
           close={() => setAligning(false)}
           finish={finishAlignment}
+          error={(text) => message('设备延迟检测失败', text)}
         />
       )}
     </div>

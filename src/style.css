@@ -1483,6 +1483,78 @@ dialog.alignment-workspace {
   background: #e8ebe5;
   color: #a2a99e;
 }
+.device-delay-entry {
+  align-self: flex-start;
+  gap: 8px;
+  min-height: 30px;
+  padding: 3px 11px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.device-delay-entry:hover:not(:disabled) {
+  color: var(--green);
+}
+.device-delay-entry strong {
+  color: #314933;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.device-delay-panel {
+  padding: 14px 20px;
+}
+.device-delay-heading {
+  margin-bottom: 10px;
+}
+.device-delay-heading h3 {
+  margin-right: auto;
+  font-size: 18px;
+}
+.device-delay-saved {
+  color: #8b9487;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.device-delay-collapse {
+  min-height: 28px;
+  padding: 3px 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.device-delay-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.device-delay-tap {
+  min-height: 44px;
+  padding: 9px 18px;
+  border-color: #b9cbb5;
+  background: #eef4ea;
+  color: var(--green);
+  font-size: 15px;
+  font-weight: 550;
+}
+.device-delay-tap:hover:not(:disabled) {
+  border-color: #9fb59a;
+  background: #e3eddf;
+}
+.device-delay-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 28px;
+  padding: 12px 0 4px;
+}
+.device-delay-stats .device-delay-value strong {
+  font-size: 28px;
+}
+.device-delay-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .audio-player {
   display: flex;
   align-items: center;
@@ -1819,6 +1891,12 @@ dialog.alignment-workspace {
   .workbench-step {
     padding: 14px 16px;
   }
+  .device-delay-panel {
+    padding: 12px 16px;
+  }
+  .device-delay-stats .device-delay-value strong {
+    font-size: 24px;
+  }
   .tap-stat-bpm strong {
     font-size: 26px;
   }
@@ -1840,6 +1918,12 @@ dialog.alignment-workspace {
   }
   .workbench-step {
     padding: 13px 18px;
+  }
+  .device-delay-panel {
+    padding: 11px 18px;
+  }
+  .device-delay-stats .device-delay-value strong {
+    font-size: 24px;
   }
   .workbench-step-heading {
     margin-bottom: 10px;
