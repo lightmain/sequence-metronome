@@ -105,7 +105,10 @@ test('打拍 Space 隔离、撤销、跳转清空、两步单界面、微调和�
   await expectTapPulse(workspace);
   await workspace.getByRole('button', { name: '撤销上一拍' }).click();
   await expect(workspace.getByTestId('tap-count')).toHaveText('3');
-  await workspace.getByRole('button', { name: '下一步' }).click();
+  await expect(workspace.getByTestId('interval-width')).not.toHaveText('—');
+  await expect(workspace.getByRole('button', { name: '下一步' })).toBeEnabled();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog', { name: '精度不足，仍然继续？' })).toBeVisible();
   await page.getByRole('button', { name: '仍然继续' }).click();
   await expect(steps.nth(0)).toHaveAttribute('inert', '');
   await expect(steps.nth(1)).not.toHaveAttribute('inert', '');
