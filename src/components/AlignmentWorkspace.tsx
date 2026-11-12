@@ -43,6 +43,9 @@ export function AlignmentWorkspace({
   const [confirmClose, setConfirmClose] = useState(false);
   const [confirmWeak, setConfirmWeak] = useState(false);
   const statistics = useMemo(() => (taps.length >= 3 ? regressTaps(taps) : undefined), [taps]);
+  const intervalWidth = statistics?.bpmInterval
+    ? statistics.bpmInterval[1] - statistics.bpmInterval[0]
+    : undefined;
   const step1Play = useRef<HTMLButtonElement>(null);
   const step2Play = useRef<HTMLButtonElement>(null);
   const tapStage = useRef<HTMLDivElement>(null);
@@ -162,6 +165,12 @@ export function AlignmentWorkspace({
     setConfirmWeak(false);
   }
 
+  function advance() {
+    if (!statistics) return;
+    if (statistics.recommended) next();
+    else setConfirmWeak(true);
+  }
+
   function back() {
     player.stop();
     setStep(1);
@@ -216,20 +225,15 @@ export function AlignmentWorkspace({
             e.preventDefault();
             e.stopPropagation();
             tap();
+          } else if (e.key === 'Enter' && step === 1 && statistics) {
+            e.preventDefault();
+            e.stopPropagation();
+            advance();
           }
         }}
         footer={
           <>
             <button onClick={() => setConfirmClose(true)}>取消</button>
-            {step === 1 && (
-              <button
-                className="primary"
-                disabled={!statistics}
-                onClick={() => (statistics?.recommended ? next() : setConfirmWeak(true))}
-              >
-                下一步
-              </button>
-            )}
             {step === 2 && <button onClick={back}>返回上一步</button>}
             <button
               className={step === 2 ? 'primary' : ''}
@@ -295,7 +299,11 @@ export function AlignmentWorkspace({
                   />
                 </div>
               </div>
-              <div className="tap-stage" aria-hidden="true" ref={tapStage}>
+              <div
+                className={`tap-stage ${statistics?.recommended ? 'ready' : ''}`}
+                aria-hidden="true"
+                ref={tapStage}
+              >
                 {Array.from({ length: RIPPLE_SLOTS }, (_, index) => (
                   <span className="tap-wave" key={index}>
                     <span className="tap-wave-line left" />
@@ -310,10 +318,25 @@ export function AlignmentWorkspace({
                   <span className="stat-label">BPM</span>
                   <strong>{statistics?.bpm.toFixed(3) ?? '—'}</strong>
                 </div>
+                <div className="tap-stat tap-stat-reference">
+                  <span className="stat-label">参考 BPM</span>
+                  <NumberField
+                    label="参考 BPM"
+                    min={1}
+                    disabled={!step1Active}
+                    value={manual ?? Math.round(statistics?.bpm ?? 120)}
+                    onCommit={setManual}
+                  />
+                </div>
                 <div className="tap-stat">
                   <span className="stat-label">打拍</span>
                   <strong data-testid="tap-count">{taps.length}</strong>
                   <span className="stat-unit">次</span>
+                </div>
+                <div className="tap-stat">
+                  <span className="stat-label">跨度</span>
+                  <strong>{statistics?.span.toFixed(2) ?? '—'}</strong>
+                  <span className="stat-unit">s</span>
                 </div>
                 <div className="tap-stat tap-stat-ci">
                   <span className="stat-label">95% 置信区间</span>
@@ -322,9 +345,8 @@ export function AlignmentWorkspace({
                   </strong>
                 </div>
                 <div className="tap-stat">
-                  <span className="stat-label">跨度</span>
-                  <strong>{statistics?.span.toFixed(2) ?? '—'}</strong>
-                  <span className="stat-unit">s</span>
+                  <span className="stat-label">区间长度</span>
+                  <strong data-testid="interval-width">{intervalWidth?.toFixed(3) ?? '—'}</strong>
                 </div>
                 <span
                   className={`alignment-state ${
@@ -355,16 +377,9 @@ export function AlignmentWorkspace({
                 >
                   清空本轮打拍
                 </button>
-                <label className="reference-field">
-                  参考 BPM{' '}
-                  <NumberField
-                    label="参考 BPM"
-                    min={1}
-                    disabled={!step1Active}
-                    value={manual ?? Math.round(statistics?.bpm ?? 120)}
-                    onCommit={setManual}
-                  />
-                </label>
+                <button className="primary next-action" disabled={!statistics} onClick={advance}>
+                  下一步 <kbd>↵</kbd>
+                </button>
               </div>
             </section>
 

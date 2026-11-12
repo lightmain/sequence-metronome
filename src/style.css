@@ -1580,6 +1580,13 @@ dialog.alignment-workspace {
   background: #fbfcf8;
   overflow: hidden;
   contain: layout paint style;
+  transition:
+    background-color 0.22s,
+    border-color 0.22s;
+}
+.tap-stage.ready {
+  border-color: #b9d5b9;
+  background: #f4faf2;
 }
 .tap-stage-axis {
   position: absolute;
@@ -1590,6 +1597,10 @@ dialog.alignment-workspace {
   margin-left: -3px;
   border-radius: 3px;
   background: #e5eae1;
+  transition: background-color 0.22s;
+}
+.tap-stage.ready .tap-stage-axis {
+  background: #2f7a45;
 }
 .tap-wave {
   position: absolute;
@@ -1607,6 +1618,9 @@ dialog.alignment-workspace {
   background: #6f8a70;
   opacity: 0;
 }
+.tap-stage.ready .tap-wave-line {
+  background: #4a8f5b;
+}
 .tap-core {
   position: absolute;
   left: 50%;
@@ -1617,6 +1631,9 @@ dialog.alignment-workspace {
   border-radius: 3px;
   background: var(--green);
   opacity: 0;
+}
+.tap-stage.ready .tap-core {
+  background: #2f7a45;
 }
 .tap-statistics {
   display: flex;
@@ -1649,6 +1666,12 @@ dialog.alignment-workspace {
 .tap-stat-ci strong {
   font-size: 16px;
   font-weight: 550;
+}
+.tap-stat-reference {
+  align-items: center;
+}
+.tap-stat-reference input[type='number'] {
+  width: 72px;
 }
 .stat-unit {
   font-size: 12px;
@@ -1692,16 +1715,11 @@ dialog.alignment-workspace {
   border-color: #9fb59a;
   background: #e3eddf;
 }
-.reference-field {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+.tap-actions .next-action {
   margin-left: auto;
-  color: #747f6b;
-  font-size: 13px;
-}
-.tap-actions .reference-field input {
-  width: 88px;
+  min-height: 44px;
+  padding: 9px 18px;
+  font-size: 15px;
 }
 .alignment-values {
   display: flex;
