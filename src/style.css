@@ -1397,9 +1397,67 @@ dialog::backdrop {
 .synth-group {
   flex: 0 1 auto;
 }
+.synth-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  min-width: 240px;
+}
+.synth-progress-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #8b9487;
+  font-size: 12px;
+}
+.synth-progress-percent {
+  color: #6f7a6d;
+  font-variant-numeric: tabular-nums;
+}
+.synth-progress-track {
+  display: flex;
+  gap: 3px;
+  height: 5px;
+}
+.synth-progress-segment {
+  flex: 1;
+  overflow: hidden;
+  border-radius: 2px;
+  background: #e8ebe5;
+}
+.synth-progress-segment > span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--green);
+  transition: width 0.12s linear;
+}
+.synth-progress-segment.done > span {
+  width: 100%;
+}
+.synth-progress-segment.indeterminate > span {
+  width: 36%;
+  animation: synth-progress-slide 1.1s ease-in-out infinite;
+}
+@keyframes synth-progress-slide {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(310%);
+  }
+}
 @media (min-width: 1000px) {
   .synth-group {
     margin-left: auto;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .synth-progress-segment.indeterminate > span {
+    width: 60%;
+    animation: none;
   }
 }
 .music-panel input[type='range'],

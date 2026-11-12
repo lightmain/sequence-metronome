@@ -6,7 +6,10 @@ import type { useMusic } from '../hooks/useMusic';
 import type { AudioEngine } from '../transport';
 import { NumberField, MeterFields, Icon } from './Controls';
 import { synthesize } from '../synthesis';
+import type { SynthesisPhase, SynthesisProgress } from '../synthesis';
 import { formatAudioTime } from '../time';
+
+const SYNTHESIS_PHASES: SynthesisPhase[] = ['schedule', 'render', 'measure', 'encode'];
 
 export function MusicPanel({
   song,
@@ -39,6 +42,7 @@ export function MusicPanel({
   const [selecting, setSelecting] = useState(false);
   const [format, setFormat] = useState<'wav' | 'mp3'>('wav');
   const [generating, setGenerating] = useState(false);
+  const [progress, setProgress] = useState<SynthesisProgress>();
   const [result, setResult] = useState<{ key: string; blob: Blob }>();
   const task = useRef<AbortController | undefined>(undefined);
   const { player, state, buffer, fileState } = music;
@@ -57,6 +61,7 @@ export function MusicPanel({
     task.current?.abort();
     if (player.purpose === 'synthesis') player.stop();
     setGenerating(false);
+    setProgress(undefined);
     setResult(undefined);
     return () => {
       task.current?.abort();
@@ -103,6 +108,7 @@ export function MusicPanel({
     task.current = controller;
     const snapshotKey = key;
     setGenerating(true);
+    setProgress({ phase: 'schedule' });
     setResult(undefined);
     try {
       await engine.init(controller.signal);
@@ -115,13 +121,19 @@ export function MusicPanel({
         volume / 100,
         format,
         controller.signal,
+        (next) => {
+          if (!controller.signal.aborted) setProgress(next);
+        },
       );
       if (!controller.signal.aborted && snapshotKey === keyRef.current)
         setResult({ key: snapshotKey, blob });
     } catch (e) {
       if (!controller.signal.aborted) error(e instanceof Error ? e.message : String(e));
     } finally {
-      if (task.current === controller) setGenerating(false);
+      if (task.current === controller) {
+        setGenerating(false);
+        setProgress(undefined);
+      }
     }
   }
   async function preview() {
@@ -368,6 +380,7 @@ export function MusicPanel({
                 onClick={() => {
                   task.current?.abort();
                   setGenerating(false);
+                  setProgress(undefined);
                 }}
               >
                 取消生成
@@ -391,6 +404,7 @@ export function MusicPanel({
               下载合成音频
             </button>
           </div>
+          {generating && progress && <SynthesisProgressBar progress={progress} format={format} />}
         </div>
       </div>
       <input
@@ -405,5 +419,66 @@ export function MusicPanel({
         }}
       />
     </section>
+  );
+}
+
+function SynthesisProgressBar({
+  progress,
+  format,
+}: {
+  progress: SynthesisProgress;
+  format: 'wav' | 'mp3';
+}) {
+  const index = Math.max(
+    0,
+    SYNTHESIS_PHASES.findIndex((phase) => phase === progress.phase),
+  );
+  const percent =
+    progress.value === undefined
+      ? undefined
+      : Math.round(Math.min(1, Math.max(0, progress.value)) * 100);
+  const text =
+    progress.phase === 'schedule'
+      ? '正在准备合成'
+      : progress.phase === 'render'
+        ? '正在渲染音频'
+        : progress.phase === 'measure'
+          ? '正在计算音量'
+          : `正在编码 ${format.toUpperCase()}`;
+  return (
+    <div
+      className="synth-progress"
+      role="progressbar"
+      aria-label="生成音频进度"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={percent}
+      aria-valuetext={percent === undefined ? text : `${text} ${percent}%`}
+    >
+      <div className="synth-progress-head">
+        <span>{text}</span>
+        {percent !== undefined && <span className="synth-progress-percent">{percent}%</span>}
+      </div>
+      <div className="synth-progress-track" aria-hidden="true">
+        {SYNTHESIS_PHASES.map((phase, phaseIndex) => (
+          <span
+            key={phase}
+            className={`synth-progress-segment ${
+              phaseIndex < index ? 'done' : phaseIndex === index ? 'active' : ''
+            } ${phaseIndex === index && percent === undefined ? 'indeterminate' : ''}`}
+          >
+            <span
+              style={
+                phaseIndex < index
+                  ? { width: '100%' }
+                  : phaseIndex === index && percent !== undefined
+                    ? { width: `${percent}%` }
+                    : undefined
+              }
+            />
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
