@@ -1,6 +1,6 @@
 # V5 音频哈希与对齐映射计划
 
-状态：草案（2026-11-12），待确认，未实施。V5 允许一个序列关联多份音频，并用音频内容哈希作为对齐参数的键。按用户说明，不保留旧 TXT/JSON/本地存储兼容。
+状态：草案 v2（2026-11-12），已确认主要方向，待确认项见末尾，未实施。V5 允许一个序列关联多份音频，并用音频内容哈希作为对齐参数的键。按用户说明，不保留旧 TXT/JSON/本地存储兼容。
 
 ## 1. 结论与哈希选择
 
@@ -31,43 +31,50 @@ type AudioReference = {
 };
 
 type Alignment = {
-  referenceBpm: number; // 必填，允许手动小数
-  firstBeatMs: number; // 必填，毫秒
+  bpm: number; // 参考 BPM，允许手动小数
+  start: number; // 首拍时间，毫秒，允许负数
+  countin: number; // 预备小节数
+  countin_bpm: number; // 预备节拍 BPM
+  countin_time: string; // 预备节拍拍号，如 "4/4"
 };
 
 type Music = {
   audios: Record<Sha256, AudioReference>;
   alignments: Record<Sha256, Alignment>;
   activeSha?: Sha256;
-  countIn?: CountIn;
-  volume?: number;
+  countIn?: CountIn; // 序列当前的预备节拍，界面和播放使用
+  volume?: number; // 序列级音频音量
 };
 ```
 
+- 对齐映射的六个字段是 SHA、bpm、start、countin、countin_bpm、countin_time。SHA 在 TXT 中平铺为字段，在 JSON 中是映射键。
+- 六项均必填。`countin` 可以为 0，但 `countin`、`countin_bpm`、`countin_time` 仍必须出现。
+- `countin` 是非负整数；`countin_bpm` 是有限正数；`countin_time` 是合法拍号字符串，例如 `4/4`、`3/8`，分母沿用现有允许集合。
 - 音频二进制仍放在 IndexedDB，键改为 SHA，不再用随机 `id`；相同 SHA 的字节只存一份。
 - `name`、`size`、`type`、`lastModified` 仅用于显示，不参与身份判断。
 - `activeSha` 指定当前用于播放、对齐和合成的那一份音频。
-- `countIn` 和 `volume` 暂按序列保存；如果不同音频需要不同预备节拍或音量，需要改成按 SHA 保存。
+- 序列继续保存 `countIn` 和 `volume`。`Alignment` 里的三项预备节拍字段是该 SHA 对齐时的快照；它与序列 `countIn` 的同步规则见第 5 节，仍需确认。
 
 ## 3. TXT 格式
 
 在段落之前使用一条或多条对齐声明，每个 SHA 一行：
 
 ```text
-Alignment:{SHA:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08, bpm:120, start:250}
-Alignment:{SHA:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae, bpm:98.5, start:-12.5}
+Alignment:{SHA:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08, bpm:120, start:250, countin:2, countin_bpm:120, countin_time:4/4}
+Alignment:{SHA:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae, bpm:98.5, start:-12.5, countin:0, countin_bpm:98.5, countin_time:6/8}
 1 4/4 120
 3 3/8 60
 5
 ```
 
-- 键为 `SHA`、`bpm`、`start`；`bpm` 是参考 BPM，`start` 是首拍时间（毫秒）。
+- 字段名固定为 `SHA`、`bpm`、`start`、`countin`、`countin_bpm`、`countin_time`。
 - SHA 必须为 64 位十六进制；大小写统一为小写。
-- `bpm` 必须为有限正数；`start` 允许负数。
-- 同一 SHA 重复出现、字段缺失或多余、数值非法、SHA 非法，均报告带行号的解析错误。
+- `bpm`、`countin_bpm` 必须为有限正数；`start` 允许负数；`countin` 必须为非负整数。
+- `countin_time` 为 `分子/分母` 字符串，例如 `4/4`、`6/8`；无效拍号报错。
+- 同一 SHA 重复出现、六项中任一项缺失、出现多余字段、数值非法、SHA 非法，均报告带行号的解析错误。
 - `Alignment` 行必须位于首个段落或注释之前；导出时按 SHA 排序，保证文本稳定。
 - 不再支持 `Aligned 133` 行。旧文本会得到明确的格式错误，而不是静默忽略。
-- TXT 不记录文件名，只记录 SHA 和对齐参数；导入后可以没有音频，等用户关联文件时按 SHA 匹配。
+- TXT 不记录文件名，只记录 SHA 和六项参数；导入后可以没有音频，等用户关联文件时按 SHA 匹配。
 
 ## 4. JSON 格式
 
@@ -88,17 +95,21 @@ Alignment:{SHA:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae,
     },
     "alignments": {
       "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08": {
-        "referenceBpm": 120,
-        "firstBeatMs": 250
+        "bpm": 120,
+        "start": 250,
+        "countin": 2,
+        "countin_bpm": 120,
+        "countin_time": "4/4"
       }
     },
     "activeSha": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-    "countIn": { "bars": 0, "meter": [4, 4], "bpm": 120 },
+    "countIn": { "bars": 2, "meter": [4, 4], "bpm": 120 },
     "volume": 0.65
   }
 }
 ```
 
+- 对齐对象的 SHA 由映射键表示，其余五项必须齐全；等价于 TXT 的六项。
 - JSON 不包含音频二进制；跨浏览器迁移仍需重新选择文件。
 - 导入时 `audios` 可以只有元数据没有文件；只要 SHA 匹配，导入 `alignments` 的参数即可沿用。
 - 如果同一 SHA 出现在多处，以同一对象去重。
@@ -112,10 +123,28 @@ Alignment:{SHA:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae,
   - 该 SHA 不在 `audios` 中但已在 `alignments` 中：加入音频并自动显示为已对齐。
   - 新 SHA：加入音频，状态为未对齐。
 - 当前“关联原音频/替换音频”的元数据核对被 SHA 取代，不再比较文件名、大小和修改时间。
+- 多个音频是同一序列的不同整段录音，同一时间只使用 `activeSha` 指定的一份。已确认不做同时播放的多轨模型。
+- 删除音频只从 `audios` 移除；`alignments` 中对应条目保留，便于以后重新关联，TXT/JSON 也继续导出这些条目。已确认。
 - 对齐确认时写入 `alignments[activeSha]`，重新对齐覆盖同一个 SHA 的参数。
-- 切换 `activeSha` 时，播放器、对齐入口和合成都切换到该音频对应的对齐参数。
-- 删除音频只从 `audios` 移除；是否保留 `alignments` 中的孤立条目需要确认。建议保留，便于以后重新关联；TXT/JSON 也会继续导出这些条目。
-- 多个音频是**同一序列的不同整段录音，同一时间只使用一个**，还是需要同时播放的多轨素材？本计划按“不同录音、单活跃音频”设计。若要多轨混音，时间线和导出模型会显著不同，需要另定。
+
+### 对齐完成后的序列更新
+
+对齐确认时，以本次确认的参考 BPM 同时更新：
+
+1. 序列预备节拍的 BPM（`music.countIn.bpm`）。
+2. 序列第一个正式段落的 BPM（若存在）。注释行不算段落；只有注释或没有段落时不改。
+3. 两项拍号都不修改：预备节拍拍号和第一段拍号保持原值。
+4. 写入该 SHA 的对齐快照，其中 `bpm` 为参考 BPM，`countin`、`countin_bpm`、`countin_time` 取自更新后的序列预备节拍。
+
+这次更新应与对齐参数写入作为同一次可撤销的曲目修改，标记未保存，并使旧合成结果失效。若参考 BPM 是手动输入的小数，写入序列的也是同一个小数。
+
+### 预备节拍快照与切换
+
+序列界面上只有一份 `countIn`，但每个 SHA 的对齐条目各保存一份预备节拍快照。拟采用以下规则，需确认：
+
+- 切换到某个带对齐的 `activeSha` 时，用该 SHA 的快照恢复序列 `countIn` 的三项，并按该 SHA 的 `bpm` 更新第一段 BPM。
+- 用户之后修改序列预备节拍时，同步写回当前 `activeSha` 的快照；其他 SHA 的快照不动。
+- 没有 `activeSha` 或该 SHA 没有对齐时，序列 `countIn` 只作为序列设置，不写入对齐映射。
 
 ## 6. 计算与性能
 
@@ -128,18 +157,27 @@ Alignment:{SHA:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae,
 ## 7. 测试与实施顺序
 
 1. 哈希工具及已知文件测试：同字节同 SHA，改名不变，改一个字节变化。
-2. `Music` 类型、验证、JSON 读写、TXT 多 `Alignment` 行及错误定位。
+2. `Music` 类型、验证、JSON 读写、TXT 多 `Alignment` 行、六项必填及错误定位。
 3. 音频集合、SHA 去重、IndexedDB 以 SHA 为键、重新关联和自动套用对齐。
 4. 单活跃音频的播放、对齐、合成、删除和切换。
-5. 更新 UI 文案与 README；无旧格式兼容测试。
-6. `pnpm check` 与 `test:e2e`，再做一次实体声音试听。
+5. 对齐完成后的 BPM 写回：预备节拍 BPM、第一段 BPM、两项拍号不变、无段落分支、撤销与合成结果失效。
+6. 更新 UI 文案与 README；无旧格式兼容测试。
+7. `pnpm check` 与 `test:e2e`，再做一次实体声音试听。
 
-## 8. 待确认
+## 8. 已确认与待确认
 
-1. 多音频是“不同整段录音，单活跃”还是“多轨同时播放”？本计划按前者。
-2. 使用完整 SHA-256 十六进制，还是 base64url 缩短文本？
-3. 哈希原始文件字节（当前建议）还是忽略标签/重新编码后的音频内容？
-4. 删除音频后是否保留对齐映射，供以后重新关联？
-5. 预备节拍与音量继续按序列保存，还是也按 SHA 分开？
-6. TXT 是否接受用户示例中的无空格写法 `Alignment:{SHA:..., bpm:..., start:...}`，并同时接受逗号后的空格？
-7. 旧本地存储如何处理：直接忽略并在版本升级时清空，还是只拒绝旧导出文件？
+已确认：
+
+- 多音频是不同整段录音，同一时间只有一个活跃音频。
+- SHA-256 哈希原始文件字节。
+- 删除音频后保留对齐映射。
+- 预备节拍和音量按序列保存；对齐条目同时保存三项预备节拍快照，六项必填。
+- 对齐完成后按参考 BPM 更新预备节拍 BPM 和第一段 BPM，不修改拍号。
+
+待确认：
+
+1. `countin_time` 是否就是拍号字符串，例如 `4/4`、`6/8`？本计划按此理解。
+2. 切换到带对齐的 SHA 时，是否按其快照恢复序列预备节拍并更新第一段 BPM？本计划按“是”设计。
+3. 用户之后修改预备节拍时，是否同步回写当前 SHA 的快照？本计划按“是”设计。
+4. TXT 是否同时接受逗号后无空格和有空格的写法？
+5. 旧本地存储如何处理：直接忽略并在版本升级时清空，还是只拒绝旧导出文件？
