@@ -1,8 +1,35 @@
 import { describe, expect, it } from 'vitest';
-import { parseText } from '../src/model';
+import { parseText, validate } from '../src/model';
+import type { CountIn, Song } from '../src/model';
 import { MusicTimeline } from '../src/musicTimeline';
 
-const aligned = () => parseText('Aligned 1000\n1 4/4 120\n3 3/8 60\n5');
+const A = 'a'.repeat(64);
+const audio = {
+  sha256: A,
+  name: '录音.mp3',
+  size: 5000,
+  type: 'audio/mpeg',
+  lastModified: 1,
+};
+function attach(song: Song, start = 1000, countIn?: CountIn) {
+  song.version = 3;
+  song.music = {
+    audios: { [A]: audio },
+    alignments: {
+      [A]: {
+        bpm: 120,
+        start,
+        countin: countIn?.bars ?? 0,
+        countin_bpm: countIn?.bpm ?? 120,
+        countin_time: countIn ? `${countIn.meter[0]}/${countIn.meter[1]}` : '4/4',
+      },
+    },
+    activeSha: A,
+    ...(countIn ? { countIn } : {}),
+  };
+  return validate(song);
+}
+const aligned = () => attach(parseText('1 4/4 120\n3 3/8 60\n5'));
 
 describe('音频播放与合成的共同时间计算', () => {
   it('未对齐时仅有原音频，不产生节拍或高亮', () => {
@@ -14,7 +41,7 @@ describe('音频播放与合成的共同时间计算', () => {
   });
   it('无预备拍不增加前置时间，段落各自使用拍号和 BPM', () => {
     const song = aligned();
-    song.music!.alignment!.referenceBpm = 333;
+    song.music!.alignments[A]!.bpm = 333;
     const timeline = new MusicTimeline(song, 20);
     expect(timeline.shift).toBe(0);
     expect(timeline.firstBeat).toBe(1);
@@ -40,8 +67,8 @@ describe('音频播放与合成的共同时间计算', () => {
     expect(timeline.positionAt(7.5)?.bar).toBe(4);
   });
   it('预备两小节时前补 3.5 秒，保留原音频全部范围且不累计偏移', () => {
-    const song = aligned();
-    song.music!.countIn = { bars: 2, meter: [4, 4], bpm: 120 };
+    const countIn = { bars: 2, meter: [4, 4] as [number, number], bpm: 120 };
+    const song = attach(parseText('1 4/4 120\n3 3/8 60\n5'), 1000, countIn);
     const before = structuredClone(song);
     for (let i = 0; i < 3; i++) {
       const timeline = new MusicTimeline(song, 20);
@@ -58,9 +85,11 @@ describe('音频播放与合成的共同时间计算', () => {
     expect(song).toEqual(before);
   });
   it('足够长的前奏不需前补，预备节拍可与前奏重叠', () => {
-    const song = aligned();
-    song.music!.alignment!.firstBeatMs = 5000;
-    song.music!.countIn = { bars: 1, meter: [4, 4], bpm: 120 };
+    const song = attach(parseText('1 4/4 120\n3 3/8 60\n5'), 5000, {
+      bars: 1,
+      meter: [4, 4],
+      bpm: 120,
+    });
     const timeline = new MusicTimeline(song, 20);
     expect(timeline.shift).toBe(0);
     expect(timeline.preparationStart).toBe(3);
@@ -75,15 +104,17 @@ describe('音频播放与合成的共同时间计算', () => {
     expect([...timeline.beatsBetween(5 + 1e-10, 6)].map((e) => e.time)).toEqual([5.5]);
   });
   it('默认预备参数继承第一演奏段；0 小节没有固定 0.5 秒间隙', () => {
-    const song = parseText('Aligned 0\n1 7/8 80\n2');
+    const song = attach(parseText('1 7/8 80\n2'), 0);
     const timeline = new MusicTimeline(song, 1);
     expect(timeline.countIn).toEqual({ bars: 0, meter: [7, 8], bpm: 80 });
     expect([...timeline.beatsBetween(0, 1)][0].time).toBe(0);
     expect(timeline.shift).toBe(0);
   });
   it('空列表仍保留原音频，过大曲目只存段落无需生成全部拍', () => {
-    expect(new MusicTimeline(parseText('Aligned 0\n1'), 2).duration).toBe(2);
-    const timeline = new MusicTimeline(parseText('Aligned 0\n1 4/4 120\n1000000000'), 1);
+    const empty = attach(parseText('1'), 0);
+    expect(new MusicTimeline(empty, 2).duration).toBe(2);
+    const large = attach(parseText('1 4/4 120\n1000000000'), 0);
+    const timeline = new MusicTimeline(large, 1);
     expect([...timeline.beatsBetween(100, 101)]).toHaveLength(2);
   });
   it('拒绝无效时长与跳转参数', () => {

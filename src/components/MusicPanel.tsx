@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Music, Song } from '../model';
-import { clone, fingerprint } from '../model';
+import type { AudioReference, CountIn, Music, Song } from '../model';
+import { clone, fingerprint, meterText } from '../model';
 import { MusicTimeline } from '../musicTimeline';
 import type { useMusic } from '../hooks/useMusic';
 import type { AudioEngine } from '../transport';
@@ -14,6 +14,9 @@ export function MusicPanel({
   engine,
   volume,
   change,
+  addAudio,
+  selectAudio,
+  removeAudio,
   align,
   begin,
   locked,
@@ -24,20 +27,27 @@ export function MusicPanel({
   engine: AudioEngine;
   volume: number;
   change: (music: Music) => void;
+  addAudio: (audio: AudioReference) => void;
+  selectAudio: (sha?: string) => void;
+  removeAudio: (sha: string) => void;
   align: () => void;
   begin: () => void;
   locked: boolean;
   error: (message: string) => void;
 }) {
   const input = useRef<HTMLInputElement>(null);
-  const replacing = useRef(false);
   const [selecting, setSelecting] = useState(false);
   const [format, setFormat] = useState<'wav' | 'mp3'>('wav');
   const [generating, setGenerating] = useState(false);
   const [result, setResult] = useState<{ key: string; blob: Blob }>();
   const task = useRef<AbortController | undefined>(undefined);
   const { player, state, buffer, fileState } = music;
-  const parameters = song.music ?? {};
+  const parameters = song.music ?? { audios: {}, alignments: {} };
+  const audios = Object.entries(parameters.audios ?? {});
+  const activeAudio = parameters.activeSha ? parameters.audios?.[parameters.activeSha] : undefined;
+  const activeAlignment = parameters.activeSha
+    ? parameters.alignments?.[parameters.activeSha]
+    : undefined;
   const timeline = useMemo(() => new MusicTimeline(song, buffer?.duration ?? 0), [song, buffer]);
   const key = fingerprint(song) + ':' + volume + ':' + format;
   const validResult = result?.key === key ? result : undefined;
@@ -58,20 +68,35 @@ export function MusicPanel({
     begin();
     player.stop();
     try {
-      const audio = await music.stage(file, replacing.current ? undefined : parameters.audio);
-      change({
-        ...parameters,
-        audio,
-        alignment: replacing.current ? undefined : parameters.alignment,
-      });
+      addAudio(await music.stage(file));
     } catch (e) {
       error(e instanceof Error ? e.message : String(e));
     } finally {
       setSelecting(false);
     }
   }
+  function updateCountIn(next: CountIn) {
+    const sha = parameters.activeSha;
+    const alignment = sha ? parameters.alignments?.[sha] : undefined;
+    change({
+      ...parameters,
+      countIn: next,
+      alignments:
+        sha && alignment
+          ? {
+              ...parameters.alignments,
+              [sha]: {
+                ...alignment,
+                countin: next.bars,
+                countin_bpm: next.bpm,
+                countin_time: meterText(next.meter),
+              },
+            }
+          : parameters.alignments,
+    });
+  }
   async function generate() {
-    if (!buffer || !parameters.alignment) return;
+    if (!buffer || !activeAlignment) return;
     begin();
     player.stop();
     const controller = new AbortController();
@@ -131,14 +156,14 @@ export function MusicPanel({
     ? '正在读取音频'
     : fileState === 'missing'
       ? '音频文件缺失'
-      : parameters.alignment
+      : activeAlignment
         ? '已对齐'
         : '未对齐';
   const audioStateClass = reading
     ? 'loading'
     : fileState === 'missing'
       ? 'missing'
-      : parameters.alignment
+      : activeAlignment
         ? 'aligned'
         : 'unaligned';
   const audioVolume = Math.round((parameters.volume ?? 0.65) * 100);
@@ -167,38 +192,52 @@ export function MusicPanel({
             <span className="audio-state-dot" />
             {audioState}
           </span>
-          <span className="audio-name">{parameters.audio?.name ?? '未关联音频'}</span>
-          {parameters.alignment && (
+          {audios.length ? (
+            <label className="audio-select">
+              当前音频
+              <select
+                aria-label="当前音频"
+                value={parameters.activeSha ?? ''}
+                disabled={selecting || locked}
+                onChange={(e) => selectAudio(e.target.value || undefined)}
+              >
+                {!parameters.activeSha && <option value="">未选择</option>}
+                {audios.map(([sha, audio]) => (
+                  <option key={sha} value={sha}>
+                    {audio.name} · {sha.slice(0, 8)} ·{' '}
+                    {parameters.alignments?.[sha] ? '已对齐' : '未对齐'}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <span className="audio-name">未关联音频</span>
+          )}
+          {activeAlignment && (
             <span className="alignment-summary">
-              参考 BPM {parameters.alignment.referenceBpm ?? '—'} · 首拍{' '}
-              {Number(parameters.alignment.firstBeatMs.toFixed(1))} ms
+              参考 BPM {activeAlignment.bpm} · 首拍 {Number(activeAlignment.start.toFixed(1))} ms
             </span>
           )}
         </div>
         <div className="music-file-actions">
           <button
-            className={parameters.audio ? '' : 'music-accent'}
+            className={audios.length ? '' : 'music-accent'}
             disabled={selecting || locked}
-            onClick={() => {
-              replacing.current = false;
-              input.current?.click();
-            }}
+            onClick={() => input.current?.click()}
           >
-            {parameters.audio ? '关联原音频' : '关联音频'}
+            {audios.length ? '添加音频' : '关联音频'}
           </button>
-          {parameters.audio && (
-            <button
-              disabled={selecting || locked}
-              onClick={() => {
-                replacing.current = true;
-                input.current?.click();
-              }}
-            >
-              替换音频
+          {activeAudio && (
+            <button disabled={selecting || locked} onClick={() => removeAudio(activeAudio.sha256)}>
+              移除当前
             </button>
           )}
-          <button className="music-align" disabled={!buffer || selecting || locked} onClick={align}>
-            {parameters.alignment ? '重新对齐' : '对齐'}
+          <button
+            className="music-align"
+            disabled={!buffer || !activeAudio || selecting || locked}
+            onClick={align}
+          >
+            {activeAlignment ? '重新对齐' : '对齐'}
           </button>
         </div>
       </header>
@@ -279,9 +318,7 @@ export function MusicPanel({
                 min={0}
                 value={timeline.countIn.bars}
                 disabled={locked}
-                onCommit={(bars) =>
-                  change({ ...parameters, countIn: { ...timeline.countIn, bars } })
-                }
+                onCommit={(bars) => updateCountIn({ ...timeline.countIn, bars })}
               />
             </label>
             <label>
@@ -290,9 +327,7 @@ export function MusicPanel({
                 label="预备节拍"
                 disabled={locked}
                 meter={timeline.countIn.meter}
-                onChange={(meter) =>
-                  change({ ...parameters, countIn: { ...timeline.countIn, meter } })
-                }
+                onChange={(meter) => updateCountIn({ ...timeline.countIn, meter })}
               />
             </label>
             <label>
@@ -303,7 +338,7 @@ export function MusicPanel({
                 max={400}
                 disabled={locked}
                 value={timeline.countIn.bpm}
-                onCommit={(bpm) => change({ ...parameters, countIn: { ...timeline.countIn, bpm } })}
+                onCommit={(bpm) => updateCountIn({ ...timeline.countIn, bpm })}
               />
             </label>
           </div>
@@ -323,7 +358,7 @@ export function MusicPanel({
               </select>
             </label>
             <button
-              disabled={!buffer || !parameters.alignment || generating || selecting}
+              disabled={!buffer || !activeAlignment || generating || selecting}
               onClick={() => void generate()}
             >
               生成合成音频

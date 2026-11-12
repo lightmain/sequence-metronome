@@ -84,7 +84,7 @@ describe('本地保存和历史', () => {
   });
   it('拒绝损坏本地数据', () => {
     expect(() => loadWorkspace({ getItem: () => '{' })).toThrow();
-    expect(() => loadWorkspace({ getItem: () => '{"version":2}' })).toThrow();
-    expect(STORAGE_KEY).toContain('v1');
+    expect(() => loadWorkspace({ getItem: () => '{"version":3}' })).toThrow();
+    expect(STORAGE_KEY).toContain('v2');
   });
 });

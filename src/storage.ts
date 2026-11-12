@@ -2,6 +2,7 @@ import { fingerprint, validate } from './model';
 import type { Song } from './model';
 export {
   STORAGE_KEY,
+  clearLegacyStorage,
   loadWorkspace,
   loadLibrary,
   persistWorkspace,

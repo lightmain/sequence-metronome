@@ -10,19 +10,33 @@ import { MusicPanel } from './components/MusicPanel';
 import { AlignmentWorkspace } from './components/AlignmentWorkspace';
 import { useMusic } from './hooks/useMusic';
 import { stopped } from './transport';
-import type { ClipRow, Meter, Music, Row, Section, Song } from './model';
+import type {
+  ClipRow,
+  Alignment,
+  AlignmentCore,
+  AudioReference,
+  Meter,
+  Music,
+  Row,
+  Section,
+  Song,
+} from './model';
 import {
   clone,
+  activeAlignment,
   applyText,
   copyRows,
+  effectiveCountIn,
   exampleSong,
   exportText,
   fingerprint,
   insertRows,
+  meterText,
   newSong,
   parseJson,
   parseClipboard,
   MAX_IMPORT_BYTES,
+  parseMeterText,
   parseText,
   removeRows,
   sections,
@@ -35,6 +49,7 @@ import type { SavedEntry, Tab } from './storage';
 import {
   commit,
   dirty,
+  clearLegacyStorage,
   loadLibrary,
   loadWorkspace,
   persistWorkspace,
@@ -42,10 +57,12 @@ import {
   redo,
   undo,
 } from './storage';
+import { clearLegacyAudio } from './audioFiles';
 import { useAudioTransport } from './hooks/useAudioTransport';
 
 function createInitialWorkspace() {
   try {
+    clearLegacyStorage(localStorage);
     const saved = loadWorkspace(localStorage);
     if (saved?.tabs.length) return { ...saved, error: saved.warnings.join('\n') };
     if (saved?.warnings.length) {
@@ -65,6 +82,21 @@ function createInitialWorkspace() {
 }
 function makeTab(song: Song): Tab {
   return { id: uid(), song, past: [], future: [] };
+}
+function activateAudio(song: Song, sha: string | undefined) {
+  if (!song.music) return song;
+  song.music.activeSha = sha;
+  const alignment = sha ? song.music.alignments[sha] : undefined;
+  if (alignment) {
+    song.music.countIn = {
+      bars: alignment.countin,
+      meter: parseMeterText(alignment.countin_time),
+      bpm: alignment.countin_bpm,
+    };
+    const first = sections(song)[0];
+    if (first) first.bpm = alignment.bpm;
+  }
+  return song;
 }
 function isEditing(target: EventTarget | null) {
   return (
@@ -107,8 +139,12 @@ export default function App() {
   const tab = tabs.find((t) => t.id === active) ?? tabs[0],
     song = tab.song;
   const music = useMusic(engine, song, (text) => message('音频操作失败', text));
+  const currentAlignment = activeAlignment(song);
   const retainAudio = music.retain;
   const [aligning, setAligning] = useState(false);
+  useEffect(() => {
+    clearLegacyAudio();
+  }, []);
   const audioActive = music.state.phase !== 'stopped';
   const position = audioActive
     ? (music.state.position ?? { ...stopped, bar: 0, beat: -1 })
@@ -185,12 +221,64 @@ export default function App() {
     try {
       setAll(
         tabsRef.current.map((t) =>
-          t.id === id ? commit(t, { ...t.song, version: 2, music: parameters }) : t,
+          t.id === id ? commit(t, { ...t.song, version: 3, music: parameters }) : t,
         ),
       );
     } catch (error) {
       message('修改失败', errorText(error));
     }
+  });
+  const addAudio = useEvent((audio: AudioReference) => {
+    updateSong((s) => {
+      if (!s.music) s.music = { audios: {}, alignments: {} };
+      s.version = 3;
+      s.music.audios = { ...s.music.audios, [audio.sha256]: audio };
+      activateAudio(s, audio.sha256);
+      return validate(s);
+    });
+  });
+  const selectAudio = useEvent((sha: string | undefined) => {
+    updateSong((s) => {
+      if (!s.music) return s;
+      return validate(activateAudio(s, sha));
+    });
+  });
+  const removeAudio = useEvent((sha: string) => {
+    updateSong((s) => {
+      if (!s.music) return s;
+      const previousActive = s.music.activeSha;
+      const audios = { ...s.music.audios };
+      delete audios[sha];
+      const activeSha = previousActive === sha ? Object.keys(audios)[0] : previousActive;
+      s.music = { ...s.music, audios, activeSha };
+      if (activeSha !== previousActive && activeSha) activateAudio(s, activeSha);
+      return validate(s);
+    });
+  });
+  const finishAlignment = useEvent((core: AlignmentCore) => {
+    const sha = song.music?.activeSha;
+    if (!sha) return;
+    const countIn = { ...effectiveCountIn(song), bpm: core.referenceBpm };
+    const alignment: Alignment = {
+      bpm: core.referenceBpm,
+      start: core.firstBeatMs,
+      countin: countIn.bars,
+      countin_bpm: countIn.bpm,
+      countin_time: meterText(countIn.meter),
+    };
+    updateSong((s) => {
+      if (!s.music) throw Error('当前曲目没有音频。');
+      s.version = 3;
+      s.music = {
+        ...s.music,
+        countIn,
+        alignments: { ...s.music.alignments, [sha]: alignment },
+      };
+      const first = sections(s)[0];
+      if (first) first.bpm = core.referenceBpm;
+      return validate(s);
+    });
+    setAligning(false);
   });
   const modifyRow = useEvent(function modifyRow(
     id: string,
@@ -702,6 +790,9 @@ export default function App() {
             engine={engine}
             volume={volume}
             change={(parameters) => changeMusic(parameters, tab.id)}
+            addAudio={addAudio}
+            selectAudio={selectAudio}
+            removeAudio={removeAudio}
             locked={sequenceLocked}
             error={(text) => message('音频操作失败', text)}
             begin={stopPure}
@@ -783,12 +874,13 @@ export default function App() {
           buffer={music.buffer}
           player={music.player}
           state={music.state}
-          initial={song.music?.alignment}
+          initial={
+            currentAlignment
+              ? { firstBeatMs: currentAlignment.start, referenceBpm: currentAlignment.bpm }
+              : undefined
+          }
           close={() => setAligning(false)}
-          finish={(alignment) => {
-            changeMusic({ ...song.music, alignment });
-            setAligning(false);
-          }}
+          finish={finishAlignment}
         />
       )}
     </div>

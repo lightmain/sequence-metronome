@@ -18,21 +18,16 @@ const savedTab = (id: string): Tab => {
   return { id, song, saved: fingerprint(song), past: [], future: [] };
 };
 
-describe('本地格式迁移、冲突和损坏恢复', () => {
-  it('旧格式可读取，下一次保存迁移到 V4 保存格式且标签不再重复存储曲目', () => {
+describe('本地保存、冲突和损坏恢复', () => {
+  it('新文档保存为 version 4，标签不再重复存储曲目', () => {
     const tab = savedTab('a');
-    const storage = memory({
-      version: 1,
-      active: 'a',
-      tabs: [{ id: 'a', song: tab.song }],
-      library: [{ id: 'a', song: tab.song }],
-    });
-    expect(loadWorkspace(storage)!.tabs[0].song).toEqual(tab.song);
+    const storage = memory();
     persistWorkspace(storage, [tab], 'a', 'a');
     const raw = JSON.parse(storage.getItem());
-    expect(raw.version).toBe(3);
+    expect(raw.version).toBe(4);
     expect(raw.tabs).toEqual(['a']);
     expect(raw.library).toHaveLength(1);
+    expect(loadWorkspace(storage)!.tabs[0].song).toEqual(tab.song);
   });
   it('旧网页元数据写入不覆盖新内容，旧版本保存明确失败并保留修改', () => {
     const storage = memory(),
@@ -53,7 +48,7 @@ describe('本地格式迁移、冲突和损坏恢复', () => {
     const good = savedTab('good'),
       bad = { id: 'bad', song: { broken: true } };
     const storage = memory({
-      version: 2,
+      version: 4,
       active: 'bad',
       tabs: ['bad', 'good'],
       library: [bad, { id: 'good', song: good.song }],

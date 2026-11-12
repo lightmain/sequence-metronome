@@ -2,7 +2,35 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AudioEngine } from '../src/transport';
 import { MusicPlayer } from '../src/musicPlayer';
 import { MusicTimeline } from '../src/musicTimeline';
-import { parseText } from '../src/model';
+import { parseText, validate } from '../src/model';
+import type { Song } from '../src/model';
+
+const SHA = 'a'.repeat(64);
+function attach(song: Song, start = 0) {
+  song.version = 3;
+  song.music = {
+    audios: {
+      [SHA]: {
+        sha256: SHA,
+        name: '录音.mp3',
+        size: 1,
+        type: 'audio/mpeg',
+        lastModified: 1,
+      },
+    },
+    alignments: {
+      [SHA]: {
+        bpm: 120,
+        start,
+        countin: 0,
+        countin_bpm: 120,
+        countin_time: '4/4',
+      },
+    },
+    activeSha: SHA,
+  };
+  return validate(song);
+}
 
 class Source {
   buffer: unknown;
@@ -49,7 +77,7 @@ function setup() {
   vi.spyOn(engine, 'init').mockResolvedValue();
   const player = new MusicPlayer(engine);
   const buffer = { duration: 1 } as AudioBuffer;
-  const timeline = new MusicTimeline(parseText('Aligned 0\n1 4/4 120\n3'), 1);
+  const timeline = new MusicTimeline(attach(parseText('1 4/4 120\n3')), 1);
   return { engine, context, player, buffer, timeline };
 }
 function advance(context: Context, seconds: number) {
@@ -89,7 +117,7 @@ describe('音乐播放时钟和声音生命周期', () => {
   });
   it('列表先结束时原音频继续，清除高亮并停止节拍', async () => {
     const { player, context, buffer } = setup();
-    const timeline = new MusicTimeline(parseText('Aligned 0\n1 1/4 120\n2'), 2);
+    const timeline = new MusicTimeline(attach(parseText('1 1/4 120\n2')), 2);
     await player.play({ ...buffer, duration: 2 } as AudioBuffer, timeline);
     advance(context, 0.8);
     expect(player.state.phase).toBe('playing');

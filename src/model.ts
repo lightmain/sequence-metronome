@@ -2,10 +2,16 @@ export type Meter = [number, number];
 export type Section = { id: string; type: 'section'; start: number; meter: Meter; bpm: number };
 export type Comment = { id: string; type: 'comment'; text: string };
 export type Row = Section | Comment;
-// TXT 只携带首拍时间；参考 BPM 缺失时保持缺失。
-export type Alignment = { firstBeatMs: number; referenceBpm?: number };
+export type Alignment = {
+  bpm: number;
+  start: number;
+  countin: number;
+  countin_bpm: number;
+  countin_time: string;
+};
+export type AlignmentCore = { firstBeatMs: number; referenceBpm: number };
 export type AudioReference = {
-  id: string;
+  sha256: string;
   name: string;
   size: number;
   type: string;
@@ -13,13 +19,14 @@ export type AudioReference = {
 };
 export type CountIn = { bars: number; meter: Meter; bpm: number };
 export type Music = {
-  audio?: AudioReference;
-  alignment?: Alignment;
+  audios: Record<string, AudioReference>;
+  alignments: Record<string, Alignment>;
+  activeSha?: string;
   countIn?: CountIn;
   volume?: number;
 };
 export type Song = {
-  version: 1 | 2;
+  version: 1 | 3;
   title: string;
   endExclusive: number;
   rows: Row[];
@@ -40,16 +47,44 @@ export function sectionEnd(song: Song, id: string) {
   return (list[index + 1]?.start ?? song.endExclusive) - 1;
 }
 export const beatSeconds = (meter: Meter, bpm: number) => ((60 / bpm) * 4) / meter[1];
+export const meterText = (meter: Meter) => `${meter[0]}/${meter[1]}`;
+export function parseMeterText(text: string): Meter {
+  const match = /^(\d{1,2})\/(\d{1,2})$/.exec(text);
+  if (!match) throw Error('预备节拍拍号须写成“分子/分母”，例如 4/4。');
+  const meter: Meter = [+match[1], +match[2]];
+  if (
+    !Number.isInteger(meter[0]) ||
+    meter[0] < 1 ||
+    meter[0] > 32 ||
+    !denominators.includes(meter[1])
+  )
+    throw Error('拍号分子须为 1–32，分母须为 1、2、4、8、16、32。');
+  return meter;
+}
+export function effectiveCountIn(song: Song): CountIn {
+  const list = sections(song);
+  return (
+    song.music?.countIn ?? {
+      bars: 0,
+      meter: [...(list[0]?.meter ?? [4, 4])],
+      bpm: list[0]?.bpm ?? 120,
+    }
+  );
+}
+export function activeAlignment(song: Song): Alignment | undefined {
+  const sha = song.music?.activeSha;
+  return sha ? song.music?.alignments?.[sha] : undefined;
+}
 export function validate(song: Song): Song {
   if (
     !song ||
-    ![1, 2].includes(song.version) ||
+    ![1, 3].includes(song.version) ||
     typeof song.title !== 'string' ||
     !Array.isArray(song.rows)
   )
-    throw Error('曲目格式不正确，version 必须为 1 或 2。');
+    throw Error('曲目格式不正确，version 必须为 1 或 3。');
   if (song.music !== undefined) {
-    if (song.version !== 2) throw Error('音乐参数需要曲目格式 version 2。');
+    if (song.version !== 3) throw Error('音乐参数需要曲目格式 version 3。');
     validateMusic(song.music);
   }
   if (!song.title.trim() || song.title.length > 200) throw Error('曲目名称须为 1–200 个字符。');
@@ -193,9 +228,15 @@ export function copyRows(song: Song, selected: Set<string>): ClipRow[] {
     );
 }
 export function exportText(song: Song) {
+  const alignments = Object.entries(song.music?.alignments ?? {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(
+      ([sha, a]) =>
+        `Alignment:{SHA:${sha}, bpm:${a.bpm}, start:${a.start}, countin:${a.countin}, countin_bpm:${a.countin_bpm}, countin_time:${a.countin_time}}`,
+    );
   return (
     [
-      ...(song.music?.alignment ? [`Aligned ${song.music.alignment.firstBeatMs}`] : []),
+      ...alignments,
       ...song.rows.flatMap((r) =>
         r.type === 'comment'
           ? r.text.split(/\r?\n/).map((line) => '#' + line)
@@ -205,6 +246,55 @@ export function exportText(song: Song) {
     ].join('\n') + '\n'
   );
 }
+
+function parseAlignment(line: string): [string, Alignment] {
+  const match = /^Alignment\s*:\s*\{(.*)\}\s*$/.exec(line);
+  if (!match)
+    throw Error(
+      'Alignment 行格式为 Alignment:{SHA:..., bpm:..., start:..., countin:..., countin_bpm:..., countin_time:...}。',
+    );
+  const fields = new Map<string, string>();
+  for (const part of match[1].split(',')) {
+    const separator = part.indexOf(':');
+    if (separator < 1) throw Error('Alignment 字段须写成“名称:值”。');
+    const key = part.slice(0, separator).trim(),
+      value = part.slice(separator + 1).trim();
+    if (!key || !value) throw Error('Alignment 字段名称和值不能为空。');
+    if (fields.has(key)) throw Error(`Alignment 字段 ${key} 重复。`);
+    fields.set(key, value);
+  }
+  const expected = ['SHA', 'bpm', 'start', 'countin', 'countin_bpm', 'countin_time'];
+  for (const key of expected) if (!fields.has(key)) throw Error(`Alignment 缺少 ${key}。`);
+  for (const key of fields.keys())
+    if (!expected.includes(key)) throw Error(`Alignment 包含未知字段 ${key}。`);
+  const sha = fields.get('SHA')!.toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(sha)) throw Error('Alignment 的 SHA 须为 64 位十六进制。');
+  const number = (key: string) => {
+    const value = fields.get(key)!;
+    if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(value))
+      throw Error(`Alignment 的 ${key} 须为数字。`);
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) throw Error(`Alignment 的 ${key} 须为有限数字。`);
+    return parsed;
+  };
+  const bpm = number('bpm'),
+    start = number('start'),
+    countinBpm = number('countin_bpm');
+  if (bpm <= 0) throw Error('Alignment 的 bpm 须为正数。');
+  if (countinBpm <= 0) throw Error('Alignment 的 countin_bpm 须为正数。');
+  const rawCountin = fields.get('countin')!;
+  if (!/^\d+$/.test(rawCountin)) throw Error('Alignment 的 countin 须为非负整数。');
+  const countin = Number(rawCountin);
+  if (!Number.isSafeInteger(countin)) throw Error('Alignment 的 countin 须为非负整数。');
+  let countinTime: string;
+  try {
+    countinTime = meterText(parseMeterText(fields.get('countin_time')!));
+  } catch (error) {
+    throw Error(`Alignment 的 countin_time 无效：${(error as Error).message}`, { cause: error });
+  }
+  return [sha, { bpm, start, countin, countin_bpm: countinBpm, countin_time: countinTime }];
+}
+
 export function parseText(text: string, title = '导入曲目'): Song {
   if (new TextEncoder().encode(text).byteLength > MAX_IMPORT_BYTES)
     throw Error('文件不能超过 2 MiB。');
@@ -218,14 +308,15 @@ export function parseText(text: string, title = '导入曲目'): Song {
     const line = source.trim();
     if (!line) continue;
     try {
-      if (/^Aligned\b/i.test(line)) {
-        if (song.music?.alignment) throw Error('Aligned 声明重复。');
-        if (song.rows.length || ended) throw Error('Aligned 声明必须位于文本开头。');
-        const match = /^Aligned\s+([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)$/.exec(line);
-        if (!match || !Number.isFinite(Number(match[1])))
-          throw Error('Aligned 后须为有限的首拍时间，单位为毫秒。');
-        song.version = 2;
-        song.music = { alignment: { firstBeatMs: Number(match[1]) } };
+      if (/^Alignment\s*:/i.test(line)) {
+        if (song.rows.length || ended) throw Error('Alignment 声明必须位于文本开头。');
+        const [sha, alignment] = parseAlignment(line);
+        song.version = 3;
+        song.music ??= { audios: {}, alignments: {} };
+        if (song.music.alignments[sha]) throw Error('同一 SHA 的 Alignment 声明重复。');
+        song.music.alignments[sha] = alignment;
+      } else if (/^Aligned\b/i.test(line)) {
+        throw Error('旧 Aligned 行不再支持，请使用 Alignment:{...}。');
       } else if (line.startsWith('#'))
         song.rows.push({ id: uid(), type: 'comment', text: line.slice(1) });
       else if (/^\d+$/.test(line)) {
@@ -282,17 +373,25 @@ export const fingerprint = (song: Song) =>
         : { id: row.id, type: row.type, start: row.start, meter: row.meter, bpm: row.bpm },
     ),
     music: song.music && {
-      audio: song.music.audio && {
-        id: song.music.audio.id,
-        name: song.music.audio.name,
-        size: song.music.audio.size,
-        type: song.music.audio.type,
-        lastModified: song.music.audio.lastModified,
-      },
-      alignment: song.music.alignment && {
-        firstBeatMs: song.music.alignment.firstBeatMs,
-        referenceBpm: song.music.alignment.referenceBpm,
-      },
+      audios: Object.fromEntries(
+        Object.entries(song.music.audios ?? {})
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([sha, audio]) => [
+            sha,
+            {
+              name: audio.name,
+              size: audio.size,
+              type: audio.type,
+              lastModified: audio.lastModified,
+            },
+          ]),
+      ),
+      alignments: Object.fromEntries(
+        Object.entries(song.music.alignments ?? {}).sort(([left], [right]) =>
+          left.localeCompare(right),
+        ),
+      ),
+      activeSha: song.music.activeSha,
       countIn: song.music.countIn && {
         bars: song.music.countIn.bars,
         meter: song.music.countIn.meter,
@@ -302,49 +401,73 @@ export const fingerprint = (song: Song) =>
     },
   });
 
-/** 页面文本编辑只修改段落和 TXT 包含的首拍参数，保留音频关联及预备设置。 */
+/** 页面文本编辑只修改段落和 TXT 携带的对齐映射，保留音频集合及预备设置。 */
 export function applyText(original: Song, text: string): Song {
   const parsed = parseText(text, original.title);
-  if (!original.music) return original.version === 2 ? { ...parsed, version: 2 } : parsed;
-  const alignment = parsed.music?.alignment;
+  if (!original.music) {
+    if (!parsed.music) return parsed;
+    return validate({
+      ...parsed,
+      version: 3,
+      music: { audios: {}, alignments: parsed.music.alignments },
+    });
+  }
   return validate({
     ...parsed,
-    version: 2,
+    version: 3,
     music: {
       ...original.music,
-      alignment: alignment && {
-        ...alignment,
-        referenceBpm: original.music.alignment?.referenceBpm,
-      },
+      alignments: parsed.music?.alignments ?? {},
     },
   });
+}
+
+function validateAlignment(sha: string, alignment: Alignment) {
+  if (!/^[0-9a-f]{64}$/.test(sha)) throw Error('对齐映射的 SHA 须为 64 位小写十六进制。');
+  if (!alignment || typeof alignment !== 'object' || Array.isArray(alignment))
+    throw Error('对齐参数格式不正确。');
+  if (!Number.isFinite(alignment.bpm) || alignment.bpm <= 0) throw Error('对齐参考 BPM 须为正数。');
+  if (!Number.isFinite(alignment.start)) throw Error('首拍时间须为有限的毫秒数。');
+  if (!Number.isSafeInteger(alignment.countin) || alignment.countin < 0)
+    throw Error('对齐的预备小节数须为非负整数。');
+  if (!Number.isFinite(alignment.countin_bpm) || alignment.countin_bpm <= 0)
+    throw Error('对齐的预备节拍 BPM 须为正数。');
+  if (typeof alignment.countin_time !== 'string') throw Error('对齐的预备节拍拍号须为文字。');
+  parseMeterText(alignment.countin_time);
 }
 
 function validateMusic(music: Music) {
   if (!music || typeof music !== 'object' || Array.isArray(music))
     throw Error('音乐参数格式不正确。');
-  if (music.alignment !== undefined) {
-    const a = music.alignment;
-    if (!a || !Number.isFinite(a.firstBeatMs)) throw Error('首拍时间须为有限的毫秒数。');
-    if (a.referenceBpm !== undefined && (!Number.isFinite(a.referenceBpm) || a.referenceBpm <= 0))
-      throw Error('参考 BPM 须为正数。');
-  }
-  if (music.audio !== undefined) {
-    const a = music.audio;
+  if (
+    !music.audios ||
+    typeof music.audios !== 'object' ||
+    Array.isArray(music.audios) ||
+    !music.alignments ||
+    typeof music.alignments !== 'object' ||
+    Array.isArray(music.alignments)
+  )
+    throw Error('音频集合或对齐映射格式不正确。');
+  for (const [sha, audio] of Object.entries(music.audios)) {
     if (
-      !a ||
-      typeof a.id !== 'string' ||
-      !a.id ||
-      typeof a.name !== 'string' ||
-      !a.name ||
-      typeof a.type !== 'string' ||
-      !Number.isSafeInteger(a.size) ||
-      a.size <= 0 ||
-      !Number.isSafeInteger(a.lastModified) ||
-      a.lastModified < 0
+      !audio ||
+      typeof audio !== 'object' ||
+      audio.sha256 !== sha ||
+      typeof audio.name !== 'string' ||
+      !audio.name ||
+      typeof audio.type !== 'string' ||
+      !Number.isSafeInteger(audio.size) ||
+      audio.size <= 0 ||
+      !Number.isSafeInteger(audio.lastModified) ||
+      audio.lastModified < 0
     )
       throw Error('音频文件识别信息不正确。');
+    validateAlignmentSha(sha);
   }
+  for (const [sha, alignment] of Object.entries(music.alignments))
+    validateAlignment(sha, alignment);
+  if (music.activeSha !== undefined && !music.audios[music.activeSha])
+    throw Error('当前音频不在关联列表中。');
   if (music.countIn !== undefined) {
     const c = music.countIn;
     if (
@@ -368,6 +491,10 @@ function validateMusic(music: Music) {
     (!Number.isFinite(music.volume) || music.volume < 0 || music.volume > 1)
   )
     throw Error('音频音量须在 0–1 之间。');
+}
+
+function validateAlignmentSha(sha: string) {
+  if (!/^[0-9a-f]{64}$/.test(sha)) throw Error('音频 SHA 须为 64 位小写十六进制。');
 }
 
 export function parseClipboard(text: string): ClipRow[] {

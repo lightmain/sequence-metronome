@@ -1,7 +1,7 @@
 import type { AudioReference } from './model';
-import { uid } from './model';
 
-const DB = 'metronome.audio.v1';
+const DB = 'metronome.audio.v2';
+const LEGACY_DB = 'metronome.audio.v1';
 type StoredAudio = { id: string; blob: Blob; created: number };
 async function database() {
   return new Promise<IDBDatabase>((resolve, reject) => {
@@ -31,22 +31,24 @@ async function transaction<T>(
     db.close();
   }
 }
-export function audioReference(file: File): AudioReference {
+export function audioReference(file: File, sha256: string): AudioReference {
   return {
-    id: uid(),
+    sha256,
     name: file.name,
     size: file.size,
     type: file.type,
     lastModified: file.lastModified,
   };
 }
-export async function readAudio(id: string): Promise<Blob | undefined> {
-  const record = await transaction<StoredAudio | undefined>('readonly', (store) => store.get(id));
+export async function readAudio(sha256: string): Promise<Blob | undefined> {
+  const record = await transaction<StoredAudio | undefined>('readonly', (store) =>
+    store.get(sha256),
+  );
   return record?.blob;
 }
 /** 文件标识不可变：先完成二进制事务，再发布引用它的曲目参数。 */
-export async function writeAudio(id: string, blob: Blob) {
-  await transaction('readwrite', (store) => store.put({ id, blob, created: Date.now() }));
+export async function writeAudio(sha256: string, blob: Blob) {
+  await transaction('readwrite', (store) => store.put({ id: sha256, blob, created: Date.now() }));
 }
 /** 保留恢复版本和隔离数据中的引用，延迟清理，避免删除其他网页刚写入的文件。 */
 export async function cleanAudio(document: unknown) {
@@ -54,13 +56,12 @@ export async function cleanAudio(document: unknown) {
   function visit(value: unknown) {
     if (!value || typeof value !== 'object') return;
     if (
-      'audio' in value &&
-      value.audio &&
-      typeof value.audio === 'object' &&
-      'id' in value.audio &&
-      typeof value.audio.id === 'string'
+      'audios' in value &&
+      value.audios &&
+      typeof value.audios === 'object' &&
+      !Array.isArray(value.audios)
     )
-      keep.add(value.audio.id);
+      for (const sha of Object.keys(value.audios)) keep.add(sha);
     for (const child of Object.values(value)) visit(child);
   }
   visit(document);
@@ -81,5 +82,14 @@ export async function cleanAudio(document: unknown) {
     });
   } finally {
     db.close();
+  }
+}
+/** 旧版数据库不再读取；用户确认不需要兼容旧数据，升级时直接删除。 */
+export function clearLegacyAudio() {
+  if (typeof indexedDB === 'undefined') return;
+  try {
+    indexedDB.deleteDatabase(LEGACY_DB);
+  } catch {
+    /* 浏览器拒绝删除时忽略，旧数据库不会再被读取。 */
   }
 }

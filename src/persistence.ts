@@ -2,9 +2,10 @@ import { fingerprint, validate } from './model';
 import type { Song } from './model';
 import type { Tab } from './storage';
 export type SavedEntry = { id: string; song: Song };
-export const STORAGE_KEY = 'metronome.workspace.v1';
+export const STORAGE_KEY = 'metronome.workspace.v2';
+export const LEGACY_STORAGE_KEY = 'metronome.workspace.v1';
 type Document = {
-  version: 3;
+  version: 4;
   active: string;
   tabs: string[];
   library: SavedEntry[];
@@ -15,6 +16,9 @@ type Document = {
 type Reader = Pick<Storage, 'getItem'>;
 const record = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
+export function clearLegacyStorage(storage: Pick<Storage, 'removeItem'>) {
+  storage.removeItem(LEGACY_STORAGE_KEY);
+}
 function entry(v: unknown): SavedEntry {
   if (!record(v) || typeof v.id !== 'string' || !v.id) throw Error('曲目标识无效。');
   return { id: v.id, song: validate(v.song as Song) };
@@ -30,7 +34,7 @@ function readDocument(storage: Reader): Document | null {
   }
   if (
     !record(data) ||
-    ![1, 2, 3].includes(data.version as number) ||
+    data.version !== 4 ||
     !Array.isArray(data.tabs) ||
     typeof data.active !== 'string'
   )
@@ -66,12 +70,9 @@ function readDocument(storage: Reader): Document | null {
         );
     }
   }
-  const tabs =
-    data.version === 1
-      ? data.tabs.flatMap((item) => (record(item) && typeof item.id === 'string' ? [item.id] : []))
-      : data.tabs.filter((id): id is string => typeof id === 'string');
+  const tabs = data.tabs.filter((id): id is string => typeof id === 'string');
   return {
-    version: 3,
+    version: 4,
     active: data.active,
     tabs: [...new Set(tabs)].filter((id) => ids.has(id)),
     library,
@@ -126,7 +127,7 @@ export function persistWorkspace(
   storage.setItem(
     STORAGE_KEY,
     JSON.stringify({
-      version: 3,
+      version: 4,
       active,
       tabs: tabs.filter((t) => library.has(t.id)).map((t) => t.id),
       library: [...library.values()],

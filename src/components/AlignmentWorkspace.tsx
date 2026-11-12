@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Alignment } from '../model';
+import type { AlignmentCore } from '../model';
 import type { MusicPlayer, MusicState, PlayPlan } from '../musicPlayer';
 import { regressTaps, lockReferenceBpm } from '../alignment';
 import { formatAudioTime } from '../time';
 import { Dialog } from './Dialog';
 import { Icon, NumberField } from './Controls';
 
-function previewWindow(alignment: Alignment, audioDuration: number) {
+function previewWindow(alignment: AlignmentCore, audioDuration: number) {
   const start = alignment.firstBeatMs / 1000;
   const shift = Math.max(0, -start);
   return { shift, first: start + shift, duration: shift + audioDuration };
@@ -29,14 +29,16 @@ export function AlignmentWorkspace({
   buffer: AudioBuffer;
   player: MusicPlayer;
   state: MusicState;
-  initial?: Alignment;
-  finish: (alignment: Alignment) => void;
+  initial?: AlignmentCore;
+  finish: (alignment: AlignmentCore) => void;
   close: () => void;
 }) {
   const [step, setStep] = useState(1);
   const [taps, setTaps] = useState<number[]>([]);
   const [manual, setManual] = useState<number>();
-  const [draft, setDraft] = useState<Alignment>(initial ?? { firstBeatMs: 0 });
+  const [draft, setDraft] = useState<AlignmentCore>(
+    initial ?? { firstBeatMs: 0, referenceBpm: 120 },
+  );
   const [step1Time, setStep1Time] = useState(0);
   const [confirmClose, setConfirmClose] = useState(false);
   const [confirmWeak, setConfirmWeak] = useState(false);
@@ -123,7 +125,7 @@ export function AlignmentWorkspace({
     );
   }
 
-  function preview(alignment: Alignment) {
+  function preview(alignment: AlignmentCore) {
     setDraft(alignment);
     const window = previewWindow(alignment, buffer.duration);
     const interval = 60 / alignment.referenceBpm!;

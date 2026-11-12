@@ -1,4 +1,4 @@
-import type { Alignment } from './model';
+import type { AlignmentCore } from './model';
 
 export type Interval = [number, number];
 export type TapRegression = {
@@ -105,7 +105,7 @@ export function regressionTimeAt(result: TapRegression, beat: number) {
 }
 
 /** 默认取整；手动 BPM 保留小数。固定周期后重新拟合偏移，不复用原截距。 */
-export function lockReferenceBpm(taps: readonly number[], manualBpm?: number): Alignment {
+export function lockReferenceBpm(taps: readonly number[], manualBpm?: number): AlignmentCore {
   const bpm = manualBpm ?? Math.round(regressTaps(taps).bpm);
   checkTaps(taps, 3);
   if (!Number.isFinite(bpm) || bpm <= 0) throw Error('参考 BPM 须为正数。');

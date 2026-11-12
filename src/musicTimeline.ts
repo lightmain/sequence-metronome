@@ -1,4 +1,4 @@
-import { beatSeconds, sections, validate } from './model';
+import { activeAlignment, beatSeconds, effectiveCountIn, sections, validate } from './model';
 import type { CountIn, Song } from './model';
 import type { BeatEvent, Position } from './transport';
 
@@ -27,22 +27,18 @@ export class MusicTimeline {
     if (!Number.isFinite(audioDuration) || audioDuration < 0)
       throw Error('音频时长须为有限的非负秒数。');
     const list = sections(song);
-    this.countIn = song.music?.countIn ?? {
-      bars: 0,
-      meter: [...(list[0]?.meter ?? [4, 4])],
-      bpm: list[0]?.bpm ?? 120,
-    };
-    const alignment = song.music?.alignment;
+    this.countIn = effectiveCountIn(song);
+    const alignment = activeAlignment(song);
     const preparation =
       this.countIn.bars * this.countIn.meter[0] * beatSeconds(this.countIn.meter, this.countIn.bpm);
     this.shift =
       alignment && this.countIn.bars > 0
-        ? Math.max(0, 0.5 - (alignment.firstBeatMs / 1000 - preparation))
+        ? Math.max(0, 0.5 - (alignment.start / 1000 - preparation))
         : 0;
     this.audioStart = this.shift;
     this.audioEnd = this.shift + audioDuration;
     if (alignment) {
-      this.firstBeat = alignment.firstBeatMs / 1000 + this.shift;
+      this.firstBeat = alignment.start / 1000 + this.shift;
       this.preparationStart = this.firstBeat - preparation;
       if (this.countIn.bars > 0) {
         this.spans.push({
