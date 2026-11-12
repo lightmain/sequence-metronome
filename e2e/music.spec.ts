@@ -80,9 +80,12 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('多音频 SHA 关联、切换、保存与刷新恢复', async ({ page }) => {
-  const { sha } = await alignedSong(page, 100);
+  const { sha, bytes } = await alignedSong(page, 100, 5, 2, '3/4');
   await expect(state(page)).toHaveText('已对齐');
   await expect(page.getByRole('spinbutton', { name: '第 1 行 BPM' })).toHaveValue('100');
+  await expect(page.getByRole('spinbutton', { name: '预备小节数' })).toHaveValue('2');
+  await expect(page.getByRole('spinbutton', { name: '预备节拍拍号分子' })).toHaveValue('3');
+  await expect(page.getByRole('combobox', { name: '预备节拍拍号分母' })).toHaveValue('4');
   await expect(page.getByRole('spinbutton', { name: '预备节拍 BPM' })).toHaveValue('100');
   await page.keyboard.press('Control+s');
   await expect(page.getByRole('tab', { selected: true })).not.toContainText('*');
@@ -98,6 +101,63 @@ test('多音频 SHA 关联、切换、保存与刷新恢复', async ({ page }) =
   await page.getByLabel('当前音频').selectOption(sha);
   await expect(state(page)).toHaveText('已对齐');
   await expect(page.getByRole('spinbutton', { name: '第 1 行 BPM' })).toHaveValue('100');
+  await expect(page.getByRole('spinbutton', { name: '预备小节数' })).toHaveValue('2');
+  await expect(page.getByRole('spinbutton', { name: '预备节拍拍号分子' })).toHaveValue('3');
+  await expect(page.getByRole('spinbutton', { name: '预备节拍 BPM' })).toHaveValue('100');
+
+  await page.getByRole('button', { name: '移除当前' }).click();
+  await expect(state(page)).toHaveText('未对齐');
+  await upload(page, bytes);
+  await expect(state(page)).toHaveText('已对齐');
+  await expect(page.getByRole('spinbutton', { name: '第 1 行 BPM' })).toHaveValue('100');
+  await expect(page.getByRole('spinbutton', { name: '预备小节数' })).toHaveValue('2');
+
+  const countInBpm = page.getByRole('spinbutton', { name: '预备节拍 BPM' });
+  await countInBpm.fill('95');
+  await countInBpm.press('Enter');
+  await page.waitForTimeout(200);
+  await expect(page.getByRole('tab', { selected: true })).toContainText('*');
+  await page.keyboard.press('Control+s');
+  const saved = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('metronome.workspace.v2')!),
+  );
+  const stored = saved.library.find((item: { id: string }) => item.id === saved.active).song;
+  expect(Object.keys(stored.music.audios)).toHaveLength(2);
+  expect(stored.music.countIn.bpm).toBe(95);
+  expect(stored.music.alignments[sha].countin_bpm).toBe(95);
+  expect(stored.music.alignments[sha].bpm).toBe(100);
+});
+
+test('切换带对齐的音频恢复各自预备节拍并更新第一段 BPM', async ({ page }) => {
+  const bytesA = wav(5);
+  const bytesB = wav(3);
+  const a = sha256(bytesA);
+  const b = sha256(bytesB);
+  await page.keyboard.press('v');
+  await page
+    .getByRole('textbox', { name: '曲目文本', exact: true })
+    .fill(
+      `${alignmentLine(a, 100, 250, 2, '3/4')}\n${alignmentLine(b, 150, 500, 1, '6/8')}\n1 4/4 120\n3 3/8 60\n5`,
+    );
+  await page.getByRole('button', { name: '确定', exact: true }).click();
+  await upload(page, bytesA);
+  await expect(page.getByRole('spinbutton', { name: '第 1 行 BPM' })).toHaveValue('100');
+  await expect(page.getByRole('spinbutton', { name: '预备小节数' })).toHaveValue('2');
+  await expect(page.getByRole('spinbutton', { name: '预备节拍拍号分子' })).toHaveValue('3');
+  await expect(page.getByRole('spinbutton', { name: '预备节拍 BPM' })).toHaveValue('100');
+
+  await upload(page, bytesB, '第二份.wav');
+  await expect(page.getByLabel('当前音频')).toHaveValue(b);
+  await expect(page.getByRole('spinbutton', { name: '第 1 行 BPM' })).toHaveValue('150');
+  await expect(page.getByRole('spinbutton', { name: '预备小节数' })).toHaveValue('1');
+  await expect(page.getByRole('spinbutton', { name: '预备节拍拍号分子' })).toHaveValue('6');
+  await expect(page.getByRole('combobox', { name: '预备节拍拍号分母' })).toHaveValue('8');
+  await expect(page.getByRole('spinbutton', { name: '预备节拍 BPM' })).toHaveValue('150');
+
+  await page.getByLabel('当前音频').selectOption(a);
+  await expect(page.getByRole('spinbutton', { name: '第 1 行 BPM' })).toHaveValue('100');
+  await expect(page.getByRole('spinbutton', { name: '预备小节数' })).toHaveValue('2');
+  await expect(page.getByRole('spinbutton', { name: '预备节拍 BPM' })).toHaveValue('100');
 });
 
 test('同步播放器暂停、继续、跳转、曲尾及纯节拍器互斥', async ({ page }) => {

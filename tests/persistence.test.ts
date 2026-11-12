@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { newSong, fingerprint } from '../src/model';
-import { loadLibrary, loadWorkspace, persistWorkspace, STORAGE_KEY } from '../src/persistence';
+import {
+  clearLegacyStorage,
+  loadLibrary,
+  loadWorkspace,
+  persistWorkspace,
+  STORAGE_KEY,
+} from '../src/persistence';
 import { commit, dirty } from '../src/storage';
 import type { Tab } from '../src/storage';
 
@@ -19,6 +25,11 @@ const savedTab = (id: string): Tab => {
 };
 
 describe('本地保存、冲突和损坏恢复', () => {
+  it('升级时清除旧版本地键', () => {
+    const removed: string[] = [];
+    clearLegacyStorage({ removeItem: (key) => removed.push(key) });
+    expect(removed).toEqual(['metronome.workspace.v1']);
+  });
   it('新文档保存为 version 4，标签不再重复存储曲目', () => {
     const tab = savedTab('a');
     const storage = memory();

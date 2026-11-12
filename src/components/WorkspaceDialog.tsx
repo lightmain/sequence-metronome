@@ -96,6 +96,13 @@ export function WorkspaceDialog({
               例如：<code>1 4/4 120</code>。<code>#</code> 开头为注释，最后独立数字为最后实际小节 +
               1。第一段从 1 开始，
             </span>
+            <span>
+              对齐行（可选）：
+              <code>
+                Alignment:{'{'}SHA:…, bpm:120, start:250, countin:2, countin_bpm:120,
+                countin_time:4/4{'}'}
+              </code>
+            </span>
           </div>
           <textarea
             autoFocus
