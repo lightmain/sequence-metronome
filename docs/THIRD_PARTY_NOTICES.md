@@ -14,4 +14,4 @@
 
 ## 节拍音效
 
-见 [音效许可](public/sounds/LICENSE.md)。
+见 [音效许可](../public/sounds/LICENSE.md)。

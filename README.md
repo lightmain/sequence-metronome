@@ -6,7 +6,7 @@
 
 ## 开发进度
 
-V5 已完成（2026-11-13）：音频内容 SHA 绑定、多音频关联、按 SHA 保存对齐参数，以及对齐完成后的 BPM 写回。本地自动测试及三分钟双声道音频规模实测已通过；音频输出使用模拟设备，实体声音未由自动测试覆盖，详见 [V5 计划](V5_PLAN.md)。合并到 main 后由现有 GitHub Actions 构建并部署 Pages。
+V5 已完成（2026-11-13）：音频内容 SHA 绑定、多音频关联、按 SHA 保存对齐参数，以及对齐完成后的 BPM 写回。本地自动测试及三分钟双声道音频规模实测已通过；音频输出使用模拟设备，实体声音未由自动测试覆盖，详见 [V5 计划](docs/plans/V5_PLAN.md)。合并到 main 后由现有 GitHub Actions 构建并部署 Pages。
 
 TXT 的对齐行使用六个字段：
 
@@ -109,7 +109,7 @@ BPM 始终表示每分钟的四分音符数量。发声和拍灯以拍号分母�
 
 每个演奏段落一行，字段为“起始小节 拍号 BPM”；`#` 开头为注释。最后的 130 是结束边界，表示实际播放到 129 小节。空曲目导出为结束边界 1，可保留注释。
 
-支持 UTF-8、Windows/Unix 换行和空行。解析失败保留原曲目及文本草稿。导入打开新标签，文本文件名作为曲目名。JSON 格式包含格式版本、曲目名称、结束边界和段落/注释行，示例见 [开发计划](DEVELOPMENT_PLAN.md)。
+支持 UTF-8、Windows/Unix 换行和空行。解析失败保留原曲目及文本草稿。导入打开新标签，文本文件名作为曲目名。JSON 格式包含格式版本、曲目名称、结束边界和段落/注释行，示例见 [开发计划](docs/plans/DEVELOPMENT_PLAN.md)。
 
 ## 本地保存
 
@@ -171,6 +171,8 @@ pnpm.cmd preview
 - `.github/workflows/ci.yml`：跨平台检查及 Pages 发布。
 - `public/sounds/`：节拍音效及许可。
 - `examples/`：可直接导入的文本和 JSON 示例。
+- `docs/plans/`：V1–V5 开发计划与验收记录。
+- `docs/THIRD_PARTY_NOTICES.md`：第三方组件与音效许可。
 
 ## 验证范围
 
@@ -186,7 +188,7 @@ TXT/JSON 输入文件及剪贴板上限为 2 MiB，每首曲目最多 10000 行�
 
 源码采用 [MIT](LICENSE)。
 
-MP3 编码器采用上游 LGPL-3.0 组件，第三方来源、许可和替换方式见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+MP3 编码器采用上游 LGPL-3.0 组件，第三方来源、许可和替换方式见 [THIRD_PARTY_NOTICES.md](docs/THIRD_PARTY_NOTICES.md)。
 
 Metronome click，作者 edgyboi1，CC0 1.0。文件来源、下载地址与许可见 [public/sounds/LICENSE.md](public/sounds/LICENSE.md)。应用运行时不依赖外部音效服务。
 
