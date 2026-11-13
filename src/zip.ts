@@ -42,27 +42,45 @@ export function audioMime(name: string) {
   return audioExtension(name) === 'mp3' ? 'audio/mpeg' : 'audio/wav';
 }
 
-/** 根目录、与 ZIP 同基名的 txt/json 和第一个 wav/mp3。 */
+/** 优先根目录、与 ZIP 同基名的 txt/json/音频；没有同基名时接受唯一的同类文件。 */
 export function selectZipEntries(entries: Unzipped, zipName: string): ZipSelection {
   const base = zipBaseName(zipName).toLowerCase();
   const selection: ZipSelection = {};
+  const roots: ZipFileEntry[] = [];
   for (const name of Object.keys(entries).sort((a, b) => a.localeCompare(b))) {
     if (name.includes('/') || name.includes('\\') || name.endsWith('/')) continue;
     const lower = name.toLowerCase();
     const bytes = entries[name];
+    const entry = { name, bytes };
+    roots.push(entry);
     if (lower === `${base}.json`) {
-      selection.json ??= { name, bytes };
+      selection.json ??= entry;
       continue;
     }
     if (lower === `${base}.txt`) {
-      selection.txt ??= { name, bytes };
+      selection.txt ??= entry;
       continue;
     }
     for (const extension of audioExtensions)
       if (lower === `${base}.${extension}` && !selection.audio) {
-        selection.audio = { name, bytes };
+        selection.audio = entry;
         break;
       }
+  }
+  // 文件名被改名、或 ZIP 名带 -noaudio/-wrongjson 等后缀时，仍接受根目录中唯一的同类文件。
+  if (!selection.json) {
+    const candidates = roots.filter((entry) => entry.name.toLowerCase().endsWith('.json'));
+    if (candidates.length === 1) selection.json = candidates[0];
+  }
+  if (!selection.txt) {
+    const candidates = roots.filter((entry) => entry.name.toLowerCase().endsWith('.txt'));
+    if (candidates.length === 1) selection.txt = candidates[0];
+  }
+  if (!selection.audio) {
+    const candidates = roots.filter((entry) =>
+      audioExtensions.some((extension) => entry.name.toLowerCase().endsWith(`.${extension}`)),
+    );
+    if (candidates.length === 1) selection.audio = candidates[0];
   }
   return selection;
 }

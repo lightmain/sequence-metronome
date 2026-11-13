@@ -134,6 +134,34 @@ test('ZIP 导入在 JSON 无效时回退 TXT，并按 TXT 的 SHA 关联音频',
   await expect(page.getByLabel('当前音频')).toHaveValue(sha);
 });
 
+test('ZIP 名带后缀且内部文件不同名时仍导入无音频序列', async ({ page }) => {
+  const base = '原曲';
+  const audio = wav();
+  await importZip(page, `${base}-noaudio.zip`, {
+    [`${base}.json`]: strToU8(JSON.stringify(song('后缀曲目', sha256(audio)))),
+    [`${base}.txt`]: strToU8('无效文本'),
+  });
+  const tab = page.getByRole('tab', { selected: true });
+  await expect(tab).toContainText('后缀曲目');
+  await expect(page.locator('.audio-state')).toHaveText('音频文件缺失');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
+test('ZIP 名带后缀且音频不同名时不关联该音频', async ({ page }) => {
+  const base = '原曲';
+  const expected = wav(5);
+  const other = wav(3);
+  await importZip(page, `${base}-anotheraudio.zip`, {
+    [`${base}.json`]: strToU8(JSON.stringify(song('后缀曲目', sha256(expected)))),
+    [`${base}.txt`]: strToU8('无效文本'),
+    [`${base}.wav`]: other,
+  });
+  const tab = page.getByRole('tab', { selected: true });
+  await expect(tab).toContainText('后缀曲目');
+  await expect(page.locator('.audio-state')).toHaveText('音频文件缺失');
+  await expect(page.getByRole('button', { name: '播放音乐', exact: false })).toBeDisabled();
+});
+
 test('ZIP 序列都读取失败时显示统一错误且不新建标签', async ({ page }) => {
   const base = '无法读取';
   const before = await page.getByRole('tab').count();

@@ -516,7 +516,10 @@ export default function App() {
     }
     let imported: Song;
     try {
-      imported = chooseSequence(selection, zipBaseName(file.name)).song;
+      const title = selection.txt
+        ? selection.txt.name.replace(/\.[^.]+$/, '')
+        : zipBaseName(file.name);
+      imported = chooseSequence(selection, title).song;
     } catch {
       message('读取失败', '节拍器序列读取错误');
       return;

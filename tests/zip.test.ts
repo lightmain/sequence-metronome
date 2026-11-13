@@ -62,6 +62,28 @@ describe('ZIP 文件命名与选择', () => {
     );
     expect(selected).toEqual({});
   });
+
+  it('ZIP 名带后缀但根目录只有一个同类文件时仍可使用', () => {
+    const selected = selectZipEntries(
+      {
+        '原曲.txt': strToU8(text),
+        '原曲.json': strToU8(JSON.stringify(song())),
+        '原曲.wav': strToU8('audio'),
+      },
+      '原曲-noaudio.zip',
+    );
+    expect(selected.txt?.name).toBe('原曲.txt');
+    expect(selected.json?.name).toBe('原曲.json');
+    expect(selected.audio?.name).toBe('原曲.wav');
+  });
+
+  it('根目录有多个同类候选且没有同名文件时不猜测', () => {
+    const selected = selectZipEntries(
+      { 'a.json': strToU8('{}'), 'b.json': strToU8('{}') },
+      'song.zip',
+    );
+    expect(selected.json).toBeUndefined();
+  });
 });
 
 describe('ZIP 序列来源', () => {
