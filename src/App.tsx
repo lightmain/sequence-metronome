@@ -125,6 +125,12 @@ function attachAudio(song: Song, reference: AudioReference) {
   });
   return validate(activateAudio(next, reference.sha256));
 }
+function detachActiveAudio(song: Song) {
+  if (!song.music?.activeSha) return song;
+  const music = { ...song.music };
+  delete music.activeSha;
+  return validate({ ...song, music });
+}
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
@@ -524,6 +530,7 @@ export default function App() {
       message('读取失败', '节拍器序列读取错误');
       return;
     }
+    let audioAttached = false;
     if (selection.audio) {
       const shas = sequenceShas(imported);
       if (shas.size) {
@@ -534,12 +541,14 @@ export default function App() {
               type: audioMime(selection.audio.name),
             });
             imported = attachAudio(imported, await music.stage(audioFile, sha));
+            audioAttached = true;
           }
         } catch {
           message('音频读取失败', '已导入序列，但音频文件无法读取，未关联音频。');
         }
       }
     }
+    if (!audioAttached) imported = detachActiveAudio(imported);
     addTab(imported);
     toast('已导入为新曲目');
   });

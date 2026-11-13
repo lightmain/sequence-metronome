@@ -143,7 +143,7 @@ test('ZIP 名带后缀且内部文件不同名时仍导入无音频序列', asyn
   });
   const tab = page.getByRole('tab', { selected: true });
   await expect(tab).toContainText('后缀曲目');
-  await expect(page.locator('.audio-state')).toHaveText('音频文件缺失');
+  await expect(page.locator('.audio-state')).toHaveText('未对齐');
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
@@ -158,7 +158,7 @@ test('ZIP 名带后缀且音频不同名时不关联该音频', async ({ page })
   });
   const tab = page.getByRole('tab', { selected: true });
   await expect(tab).toContainText('后缀曲目');
-  await expect(page.locator('.audio-state')).toHaveText('音频文件缺失');
+  await expect(page.locator('.audio-state')).toHaveText('未对齐');
   await expect(page.getByRole('button', { name: '播放音乐', exact: false })).toBeDisabled();
 });
 
@@ -183,6 +183,6 @@ test('ZIP 音频 SHA 不匹配时不关联音频', async ({ page }) => {
   });
   const tab = page.getByRole('tab', { selected: true });
   await expect(tab).toContainText('不匹配曲目');
-  await expect(page.locator('.audio-state')).toHaveText('音频文件缺失');
+  await expect(page.locator('.audio-state')).toHaveText('未对齐');
   await expect(page.getByRole('button', { name: '播放音乐', exact: false })).toBeDisabled();
 });
