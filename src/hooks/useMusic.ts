@@ -69,9 +69,9 @@ export function useMusic(engine: AudioEngine, song: Song, onError: (message: str
       cancelled = true;
     };
   }, [activeSha, stop, report]);
-  const stage = useEvent(async (file: File) => {
+  const stage = useEvent(async (file: File, knownSha?: string) => {
     const data = await file.arrayBuffer();
-    const sha256 = await sha256Hex(data);
+    const sha256 = knownSha ?? (await sha256Hex(data));
     const decoded = await decodeData(data);
     const ref = audioReference(file, sha256);
     files.current.set(sha256, file);
@@ -83,6 +83,9 @@ export function useMusic(engine: AudioEngine, song: Song, onError: (message: str
       staged.current = { sha256, buffer: decoded };
     }
     return ref;
+  });
+  const getAudio = useEvent(async (sha256: string) => {
+    return files.current.get(sha256) ?? (await readAudio(sha256));
   });
   const saveFiles = useEvent(async (snapshot: Song) => {
     for (const sha256 of Object.keys(snapshot.music?.audios ?? {})) {
@@ -99,7 +102,18 @@ export function useMusic(engine: AudioEngine, song: Song, onError: (message: str
     const ids = new Set(songs.flatMap((s) => (s.music ? Object.keys(s.music.audios ?? {}) : [])));
     for (const id of files.current.keys()) if (!ids.has(id)) files.current.delete(id);
   });
-  return { player, state, buffer, fileState, stage, saveFiles, cleanup, retain, stop };
+  return {
+    player,
+    state,
+    buffer,
+    fileState,
+    stage,
+    getAudio,
+    saveFiles,
+    cleanup,
+    retain,
+    stop,
+  };
 }
 
 async function decodeBlob(blob: Blob) {

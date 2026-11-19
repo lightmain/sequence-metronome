@@ -58,6 +58,20 @@ import {
   undo,
 } from './storage';
 import { clearLegacyAudio } from './audioFiles';
+import { sha256Hex } from './hash';
+import {
+  archiveBaseName,
+  audioExtension,
+  audioMime,
+  chooseSequence,
+  createZip,
+  isZipFile,
+  readZipFile,
+  selectZipEntries,
+  sequenceShas,
+  zipBaseName,
+} from './zip';
+import type { ZipSelection } from './zip';
 import { useAudioTransport } from './hooks/useAudioTransport';
 
 function createInitialWorkspace() {
@@ -97,6 +111,33 @@ function activateAudio(song: Song, sha: string | undefined) {
     if (first) first.bpm = alignment.bpm;
   }
   return song;
+}
+function attachAudio(song: Song, reference: AudioReference) {
+  const music = song.music ?? { audios: {}, alignments: {} };
+  const next = validate({
+    ...song,
+    version: 3,
+    music: {
+      ...music,
+      audios: { ...music.audios, [reference.sha256]: reference },
+      activeSha: reference.sha256,
+    },
+  });
+  return validate(activateAudio(next, reference.sha256));
+}
+function detachActiveAudio(song: Song) {
+  if (!song.music?.activeSha) return song;
+  const music = { ...song.music };
+  delete music.activeSha;
+  return validate({ ...song, music });
+}
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 function isEditing(target: EventTarget | null) {
   return (
@@ -142,6 +183,7 @@ export default function App() {
   const currentAlignment = activeAlignment(song);
   const retainAudio = music.retain;
   const [aligning, setAligning] = useState(false);
+  const [zipping, setZipping] = useState(false);
   useEffect(() => {
     clearLegacyAudio();
   }, []);
@@ -440,15 +482,82 @@ export default function App() {
       [format === 'txt' ? exportText(song) : JSON.stringify(song, null, 2) + '\n'],
       { type: format === 'txt' ? 'text/plain;charset=utf-8' : 'application/json;charset=utf-8' },
     );
-    const url = URL.createObjectURL(blob),
-      a = document.createElement('a');
-    a.href = url;
-    a.download = `${song.title.replace(/[<>:"/\\|?*]/g, '_') || '曲目'}.${format}`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadBlob(blob, `${archiveBaseName(song.title)}.${format}`);
+  });
+  const exportZip = useEvent(async function exportZip() {
+    const sha = song.music?.activeSha;
+    const audio = sha ? song.music?.audios[sha] : undefined;
+    if (!sha || !audio) {
+      message('导出失败', '当前曲目没有关联音频。');
+      return;
+    }
+    setZipping(true);
+    try {
+      const blob = await music.getAudio(sha);
+      if (!blob) throw Error('当前音频文件缺失，无法导出 ZIP。');
+      const base = archiveBaseName(song.title);
+      const extension = audioExtension(audio.name, audio.type);
+      const zip = createZip([
+        { name: `${base}.txt`, bytes: new TextEncoder().encode(exportText(song)) },
+        {
+          name: `${base}.json`,
+          bytes: new TextEncoder().encode(JSON.stringify(song, null, 2) + '\n'),
+        },
+        { name: `${base}.${extension}`, bytes: new Uint8Array(await blob.arrayBuffer()) },
+      ]);
+      downloadBlob(zip, `${base}.zip`);
+    } catch (error) {
+      message('导出失败', errorText(error));
+    } finally {
+      setZipping(false);
+    }
+  });
+  const importZip = useEvent(async function importZip(file: File) {
+    let selection: ZipSelection;
+    try {
+      selection = selectZipEntries(await readZipFile(file), file.name);
+    } catch (error) {
+      message('读取失败', errorText(error));
+      return;
+    }
+    let imported: Song;
+    try {
+      const title = selection.txt
+        ? selection.txt.name.replace(/\.[^.]+$/, '')
+        : zipBaseName(file.name);
+      imported = chooseSequence(selection, title).song;
+    } catch {
+      message('读取失败', '节拍器序列读取错误');
+      return;
+    }
+    let audioAttached = false;
+    if (selection.audio) {
+      const shas = sequenceShas(imported);
+      if (shas.size) {
+        try {
+          const sha = await sha256Hex(selection.audio.bytes);
+          if (shas.has(sha)) {
+            const audioFile = new File([selection.audio.bytes as BlobPart], selection.audio.name, {
+              type: audioMime(selection.audio.name),
+            });
+            imported = attachAudio(imported, await music.stage(audioFile, sha));
+            audioAttached = true;
+          }
+        } catch {
+          message('音频读取失败', '已导入序列，但音频文件无法读取，未关联音频。');
+        }
+      }
+    }
+    if (!audioAttached) imported = detachActiveAudio(imported);
+    addTab(imported);
+    toast('已导入为新曲目');
   });
   const importFile = useEvent(async function importFile(file?: File) {
     if (!file) return;
+    if (isZipFile(file.name)) {
+      await importZip(file);
+      return;
+    }
     try {
       if (file.size > MAX_IMPORT_BYTES) throw Error('文件不能超过 2 MiB。');
       const text = await file.text();
@@ -755,6 +864,12 @@ export default function App() {
                 <div>
                   <button onClick={() => exportFile('txt')}>文本 .txt</button>
                   <button onClick={() => exportFile('json')}>JSON .json</button>
+                  <button
+                    disabled={zipping || !song.music?.activeSha}
+                    onClick={() => void exportZip()}
+                  >
+                    {zipping ? '正在打包…' : 'ZIP .zip'}
+                  </button>
                 </div>
               </details>
             </div>
@@ -836,7 +951,7 @@ export default function App() {
       <input
         ref={fileInput}
         type="file"
-        accept=".txt,.json,text/plain,application/json"
+        accept=".zip,.txt,.json,application/zip,text/plain,application/json"
         hidden
         onChange={(e) => {
           void importFile(e.target.files?.[0]);
