@@ -4,10 +4,9 @@
 
 ## 结论
 
-- 项目当前为 **V6 已完成**：在 V5 基础上增加设备延迟检测。检测值只保存在浏览器 `localStorage`，只在第一步进入第二步时修正首拍一次；第二步确认的毫秒数就是播放、合成、保存和导出的最终值。
-- V6 已合并到本地 `main`（未 push、未部署）。同周期完成的合成阶段进度也已进入 `main`。实体扬声器、蓝牙和真实系统延迟尚未人工验收。
-- **V7 已实现，等待用户验收**：ZIP 导出包含 TXT、JSON 和当前音频；ZIP 导入以 JSON 优先、TXT 回退，并按 SHA 关联可选音频。实现位于 `feat/v7-zip` 分支，尚未合并 `main`；规则和验收项见 [V7 计划](plans/V7_PLAN.md)。
-- 发生冲突时，以本文件、`README.md` 的当前说明和 `docs/plans/V6_PLAN.md` 的实施记录为准；V1–V5 计划是历史记录，不代表当前行为。
+- 项目当前为 **V7 已完成**：在 V5/V6 基础上增加 ZIP 导出和导入。ZIP 导出包含 TXT、JSON 和当前 `activeSha` 音频；ZIP 导入以 JSON 优先、TXT 回退，并按 SHA 关联可选音频。
+- V6/V7 已合并并推送 `main`；Pages 由现有 GitHub Actions 构建部署，本地未检查 Actions 运行结果。实体扬声器、蓝牙和真实系统延迟尚未人工验收。
+- 发生冲突时，以本文件、`README.md` 的当前说明和 `docs/plans/V7_PLAN.md` 的实施记录为准；V1–V5 计划是历史记录，不代表当前行为。
 
 ## 技术与运行
 
@@ -58,7 +57,7 @@
 - [AGENTS](../AGENTS.md)：仓库的界面、行为和工程约定。
 - [V5 计划](plans/V5_PLAN.md)：当前数据模型、对齐规则和实施记录。
 - [V6 计划](plans/V6_PLAN.md)：设备延迟检测的统计方案、存储边界、实施记录和人工验收项。
-- [V7 计划](plans/V7_PLAN.md)：ZIP 导出/导入、音频 SHA 关联、实现记录和验收项；等待用户验收。
+- [V7 计划](plans/V7_PLAN.md)：ZIP 导出/导入、音频 SHA 关联、实现记录和验收记录；已完成。
 - [V4 计划](plans/V4_PLAN.md)、[V3 计划](plans/V3_PLAN.md)、[V2 计划](plans/V2_PLAN.md)、[V1 开发计划](plans/DEVELOPMENT_PLAN.md)：历史记录。
 - [第三方声明](THIRD_PARTY_NOTICES.md)：MP3 编码器和音效许可。
 
@@ -69,4 +68,4 @@
 3. `README.md` 的“音乐与对齐”“文本格式”“本地保存”“检查与构建”。
 4. 需要改 V5 数据或对齐逻辑时，再读 `docs/plans/V5_PLAN.md`。
 5. 需要改设备延迟检测时，先读 `docs/plans/V6_PLAN.md` 的实施记录和已知限制。
-6. 需要检查或修改 ZIP 导出/导入时，先读 `docs/plans/V7_PLAN.md` 的实现决定和验收项。
+6. 需要检查或修改 ZIP 导出/导入时，先读 `docs/plans/V7_PLAN.md` 的实现决定和验收记录。
